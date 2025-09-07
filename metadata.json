@@ -1,0 +1,5 @@
+{
+  "name": "Copy of Ebotika+ with backend",
+  "description": "A mobile-first community health application that integrates Gemini AI for initial symptom triage, provides role-based access for patients, doctors, pharmacies, and RHU administrators, and facilitates a streamlined process from consultation to prescription.",
+  "requestFramePermissions": []
+}
