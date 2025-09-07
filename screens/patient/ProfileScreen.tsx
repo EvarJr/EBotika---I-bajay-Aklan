@@ -428,7 +428,7 @@ const UserProfileView: React.FC = () => {
                         )}
                     </div>
                 </div>
-                 <div className="bg-white pt-20 pb-4 rounded-lg shadow text-center -mt-12">
+                 <div className="bg-white pt-28 pb-4 rounded-lg shadow text-center -mt-12">
                      {isEditing ? (
                         <div className="mt-4 space-y-2 max-w-xs mx-auto">
                             <input
