@@ -43,7 +43,6 @@ const PrescriptionFormScreen: React.FC = () => {
                     doctorName: user.name,
                 });
                 
-                // FIX: Add missing doctorId argument
                 updateConsultationStatus(activeConsultation.id, 'Completed', user.id);
 
                 // Navigate back to the dashboard seamlessly

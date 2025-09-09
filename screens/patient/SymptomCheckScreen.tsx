@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAppContext } from '../../hooks/useAppContext';
 import { streamChatResponse } from '../../services/geminiService';
@@ -121,7 +123,7 @@ const GuestDetailsModal: React.FC<{ onClose: () => void; onSubmit: (details: { n
 };
 
 const SymptomCheckScreen: React.FC = () => {
-    const { navigateTo, symptom, user, role, updateGuestDetails, addConsultation, language, residentRecords } = useAppContext();
+    const { navigateTo, symptom, user, role, updateGuestDetails, addConsultation, language, residentRecords, setPendingConsultationForGuest } = useAppContext();
     const { t } = useTranslation();
     const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
     
@@ -139,6 +141,7 @@ const SymptomCheckScreen: React.FC = () => {
     });
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -156,53 +159,101 @@ const SymptomCheckScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const createAndSubmitConsultation = (currentUser: User) => {
-        if (!summary) return;
-        
-        // The service now handles ID, doctor assignment, status, and prescription creation
-        addConsultation({
-            patientId: currentUser.id,
-            date: new Date().toISOString().split('T')[0],
-            symptoms: messages.filter(m => m.sender === 'user').map(m => m.text),
-            aiSummary: summary,
-            status: 'Pending Doctor', // This will be confirmed by the service.
-            chatHistory: messages,
-        });
-
-        alert(t('consultation_sent_alert'));
-        navigateTo(Screens.CONSULTATIONS);
+    const createAndSubmitConsultation = async () => {
+        if (!summary || !user) return;
+        setIsSubmitting(true);
+        try {
+            // FIX: Removed 'status' property. The status is set to 'Pending Doctor' by the firebase service.
+            await addConsultation({
+                date: new Date().toISOString().split('T')[0],
+                symptoms: messages.filter(m => m.sender === 'user').map(m => m.text),
+                aiSummary: summary,
+                chatHistory: messages,
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-    const handleSendToDoctor = () => {
+    const creditInfo = useMemo(() => {
+        if (role === 'guest' || !user) {
+            return {
+                buttonTextKey: 'symptom_check_send_to_doctor',
+                helperTextKey: 'symptom_check_guest_helper',
+                isUpgradeAction: false,
+            };
+        }
+    
+        if (user.isPremium) {
+            return {
+                buttonTextKey: 'symptom_check_send_to_doctor_premium',
+                helperTextKey: 'symptom_check_premium_helper',
+                isUpgradeAction: false,
+            };
+        }
+    
+        if (!user.hasUsedFreeConsultation) {
+            return {
+                buttonTextKey: 'symptom_check_send_to_doctor_free',
+                helperTextKey: 'symptom_check_free_helper',
+                isUpgradeAction: false,
+            };
+        }
+    
+        // Standard user, no free credit
+        return {
+            buttonTextKey: 'symptom_check_upgrade_required',
+            helperTextKey: 'symptom_check_no_credit_helper',
+            isUpgradeAction: true,
+        };
+    }, [user, role]);
+
+    const handleSendToDoctor = async () => {
         if (role === 'guest') {
             setIsGuestModalOpen(true);
             return;
         }
-
-        if (user) {
-            createAndSubmitConsultation(user);
+    
+        if (!user) return;
+    
+        // If button action is to upgrade, navigate to profile.
+        if (creditInfo.isUpgradeAction) {
+            navigateTo(Screens.PROFILE);
+            return;
         }
+        
+        // Standard user with an available free consultation needs confirmation.
+        if (!user.isPremium && !user.hasUsedFreeConsultation) {
+            const isConfirmed = window.confirm(t('consultation_free_credit_warning'));
+            if (!isConfirmed) {
+                return;
+            }
+        }
+        
+        // Proceed with submission for premium users, or standard users who confirmed.
+        await createAndSubmitConsultation();
     };
 
-    const handleGuestSubmit = (details: { name: string; contactNumber: string; address: StructuredAddress; validIdFile: File }) => {
+    const handleGuestSubmit = (details: { name: string; contactNumber: string; address: StructuredAddress; validIdFile: File; }) => {
         const isVerified = residentRecords.some(record =>
             record.name.trim().toLowerCase() === details.name.trim().toLowerCase() &&
             record.address.barangay === details.address.barangay &&
             record.address.purok === details.address.purok
         );
-
+    
         if (!isVerified) {
-            alert(t('guest_not_verified_error'));
+            alert(t('register_not_verified_error'));
             return;
         }
-        
-        // For guests, upgrading is the only path to consult a doctor.
-        // This UX can be improved later, but for now, we alert them.
-        alert(t('upgrade_for_consultation_alert_non_premium'));
-        const newPatientUser = updateGuestDetails(details);
+
+        if (summary) {
+            setPendingConsultationForGuest({ messages, summary });
+        }
+    
+        alert(t('consultation_free_credit_warning_guest'));
+        updateGuestDetails(details);
         setIsGuestModalOpen(false);
-        // We don't submit the consultation, just save their details and let them upgrade from profile.
-        navigateTo(Screens.PROFILE);
+        navigateTo(Screens.REGISTER);
     };
 
     const handleSend = async (prefilledSymptom?: string) => {
@@ -256,14 +307,24 @@ const SymptomCheckScreen: React.FC = () => {
                 <div ref={chatEndRef} />
             </div>
         </main>
-        <footer className="bg-white p-2 border-t border-gray-200">
+        <footer className="bg-white p-3 border-t border-gray-200">
             {summary ? (
-                <button
-                    onClick={handleSendToDoctor}
-                    className="w-full bg-orange-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-orange-600 transition duration-300"
-                >
-                    {t('symptom_check_send_to_doctor')}
-                </button>
+                <div className="text-center">
+                    <button
+                        onClick={handleSendToDoctor}
+                        disabled={isSubmitting}
+                        className={`w-full text-white font-bold py-3 px-4 rounded-lg shadow-lg transition duration-300 ${
+                            creditInfo.isUpgradeAction
+                                ? 'bg-blue-500 hover:bg-blue-600'
+                                : 'bg-orange-500 hover:bg-orange-600'
+                        } disabled:bg-orange-300`}
+                    >
+                        {isSubmitting ? t('submitting_text') : t(creditInfo.buttonTextKey)}
+                    </button>
+                     <p className="text-xs text-gray-500 mt-2 px-2">
+                        {t(creditInfo.helperTextKey)}
+                    </p>
+                </div>
             ) : (
                 <div className="flex items-center space-x-2">
                     <input

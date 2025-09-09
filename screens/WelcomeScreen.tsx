@@ -17,6 +17,10 @@ const WelcomeScreen: React.FC = () => {
     navigateTo(Screens.REGISTER);
   };
   
+  const handleScanQR = () => {
+    navigateTo(Screens.PHARMACY_SCAN);
+  };
+  
   return (
     <div className="flex flex-col items-center justify-center h-full bg-teal-50 p-8 text-center">
       <LogoIcon />
@@ -42,6 +46,12 @@ const WelcomeScreen: React.FC = () => {
         >
           {t('welcome_register_button')}
         </button>
+        <button
+          onClick={handleScanQR}
+          className="w-full bg-gray-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-gray-700 transition duration-300"
+        >
+          {t('welcome_scan_qr_button')}
+        </button>
       </div>
 
       <div className="mt-8">
@@ -54,10 +64,10 @@ const WelcomeScreen: React.FC = () => {
         </button>
         <span className="text-gray-500 mx-1">/</span>
         <button 
-          onClick={() => setLanguage('Aklanon')}
-          className={`font-semibold ${language === 'Aklanon' ? 'text-teal-600 underline' : 'text-gray-500'}`}
+          onClick={() => setLanguage('Tagalog')}
+          className={`font-semibold ${language === 'Tagalog' ? 'text-teal-600 underline' : 'text-gray-500'}`}
         >
-          Aklanon
+          Tagalog
         </button>
       </div>
 

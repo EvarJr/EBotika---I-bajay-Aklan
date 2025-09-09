@@ -136,7 +136,6 @@ const ConsultationDetailScreen: React.FC = () => {
                 doctorNotes: reason,
                 doctorName: user.name,
             });
-            // FIX: Add missing doctorId argument
             updateConsultationStatus(activeConsultation.id, 'Completed', user.id);
             alert('Suggestion has been denied and patient has been notified.');
             navigateTo(Screens.DOCTOR_DASHBOARD);
@@ -179,6 +178,7 @@ const ConsultationDetailScreen: React.FC = () => {
     const { patient, symptoms, aiSummary, chatHistory, status } = activeConsultation;
     const isCompleted = status === 'Completed';
     const finalPrescription = prescriptions.find(p => p.consultationId === activeConsultation.id);
+    const isPendingPrescription = finalPrescription?.status === 'Pending';
 
     return (
         <div className="relative flex flex-col h-full bg-gray-50">
@@ -196,7 +196,6 @@ const ConsultationDetailScreen: React.FC = () => {
                         <div>
                             <p><strong>Name:</strong> {patient.name}</p>
                             {patient.contactNumber && <p><strong>Contact:</strong> {patient.contactNumber}</p>}
-                            {/* FIX: Formatted the address object into a string for rendering. */}
                             {patient.address && <p><strong>Address:</strong> {`${patient.address.streetAddress}, ${patient.address.purok}, ${patient.address.barangay}`}</p>}
                         </div>
                         <button 
@@ -222,7 +221,18 @@ const ConsultationDetailScreen: React.FC = () => {
                     </InfoSection>
                 )}
 
-                <AISummaryCard summary={aiSummary} />
+                {isPendingPrescription ? (
+                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg shadow-sm">
+                        <h3 className="font-bold text-yellow-800 text-lg mb-2">Action Required: Prescription Request</h3>
+                        <p className="text-sm text-yellow-700 mb-4">
+                            The patient has submitted this AI triage summary for your review. Please issue a formal prescription or deny the request with notes.
+                        </p>
+                        <AISummaryCard summary={aiSummary} />
+                    </div>
+                ) : !isCompleted ? (
+                    <AISummaryCard summary={aiSummary} />
+                ) : null}
+
 
                 {isCompleted && finalPrescription && (
                      <InfoSection title={t('final_outcome_title')}>
@@ -250,13 +260,13 @@ const ConsultationDetailScreen: React.FC = () => {
                         onClick={() => setIsDenyModalOpen(true)}
                         className="w-full bg-red-500 text-white font-bold py-3 rounded-lg shadow hover:bg-red-600"
                     >
-                        Deny Suggestion
+                        {t('doctor_deny_request_button')}
                     </button>
                     <button 
                         onClick={handleIssuePrescription}
                         className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg shadow hover:bg-blue-600"
                     >
-                        Issue Prescription
+                        {t('doctor_correct_issue_button')}
                     </button>
                 </footer>
             )}

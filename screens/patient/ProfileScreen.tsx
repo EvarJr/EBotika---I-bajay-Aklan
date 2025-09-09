@@ -476,8 +476,12 @@ const UserProfileView: React.FC = () => {
                 </button>
                 <div className="bg-white p-3 rounded-lg shadow text-center flex flex-col items-center justify-center">
                      <div className="text-teal-500"><ChatBubbleIcon/></div>
-                    <p className="text-xs text-gray-500 mt-1 font-semibold">{t('profile_chat_credits_label')}</p>
-                    <p className="font-bold text-2xl text-gray-800 mt-1">{user.weeklyChatCredits ?? 0}</p>
+                     <p className="text-xs text-gray-500 mt-1 font-semibold">
+                         {user.subscriptionType === 'individual' ? t('profile_monthly_chat_credits') : t('profile_chat_credits_label')}
+                     </p>
+                    <p className="font-bold text-2xl text-gray-800 mt-1">
+                        {user.subscriptionType === 'individual' ? user.monthlyDirectChatCredits ?? 0 : "N/A"}
+                    </p>
                 </div>
             </div>
 
@@ -502,14 +506,32 @@ const UserProfileView: React.FC = () => {
                  <div className="bg-white p-4 rounded-lg shadow">
                     <h3 className="font-bold text-lg text-gray-800 text-center">{t('profile_upgrade_prompt_title')}</h3>
                     <div className="mt-4 grid grid-cols-1 gap-6">
+                        <div className="border-2 rounded-xl p-5 flex flex-col bg-gray-50">
+                             <div className="flex items-center">
+                                <div className="p-2 rounded-lg bg-gray-100 text-gray-600">
+                                    <UserIcon />
+                                </div>
+                                <h4 className="font-bold text-lg text-gray-800 ml-3">{t('standard_plan_title')}</h4>
+                            </div>
+                             <p className="font-extrabold text-4xl text-gray-800 my-4 text-center">
+                                FREE
+                            </p>
+                             <ul className="space-y-2 text-sm text-gray-600 flex-grow mb-5">
+                                 <li className="flex items-center">
+                                    <CheckIcon />
+                                    <span>{t('subscription_feature_free_consultation')}</span>
+                                </li>
+                             </ul>
+                        </div>
+
                         <SubscriptionPlanCard 
                             plan="individual"
                             price={49}
                             titleKey="individual_plan_title"
                             icon={<UserIcon />}
                             featureKeys={[
-                                'subscription_feature_unlimited_messaging',
-                                'subscription_feature_priority_support'
+                                'subscription_feature_unlimited_consultations',
+                                'subscription_feature_monthly_chat_credits'
                             ]}
                         />
                         <SubscriptionPlanCard 
@@ -518,8 +540,8 @@ const UserProfileView: React.FC = () => {
                             titleKey="family_plan_title"
                             icon={<UsersIcon />}
                             featureKeys={[
+                                'subscription_feature_unlimited_consultations',
                                 'subscription_feature_unlimited_messaging',
-                                'subscription_feature_priority_support',
                                 'subscription_feature_family_members',
                                 'subscription_feature_shared_records',
                             ]}
@@ -558,11 +580,11 @@ const UserProfileView: React.FC = () => {
                         <select
                             id="language"
                             value={language}
-                            onChange={(e) => setLanguage(e.target.value as 'English' | 'Aklanon')}
+                            onChange={(e) => setLanguage(e.target.value as 'English' | 'Tagalog')}
                             className="border-gray-300 rounded-md p-1 focus:ring-teal-500 focus:border-teal-500 text-sm"
                         >
                             <option>English</option>
-                            <option>Aklanon</option>
+                            <option>Tagalog</option>
                         </select>
                     </SettingRow>
                     <SettingRow label={t('profile_settings_notifications')}>

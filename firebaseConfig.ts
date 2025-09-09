@@ -1,5 +1,9 @@
 // NOTE: Replace this with your own Firebase project's configuration.
-// This is a mock configuration for demonstration purposes.
+// Use a named import for `initializeApp` as required by the Firebase v9+ modular SDK.
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 export const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -10,15 +14,9 @@ export const firebaseConfig = {
   appId: "YOUR_APP_ID"
 };
 
-// In a real application, you would initialize Firebase here:
-/*
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
-
+// Initialize Firebase
+// `initializeApp` is a function that should be called directly.
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-*/

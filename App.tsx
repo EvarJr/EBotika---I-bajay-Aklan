@@ -1,6 +1,9 @@
+
+
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppContext } from './contexts/AppContext.ts';
-import type { Role, User, Screen, Language, Consultation, ForumPost, PrivateChatMessage, Prescription, DoctorProfile, PatientDoctorChatMessage, ConsultationStatus, ResidentRecord, Medicine, PharmacyStats, RhwStats, BhwStats, StructuredAddress, BhwNotification, PatientNotification } from './types';
+import type { Role, User, Screen, Language, Consultation, ForumPost, PrivateChatMessage, Prescription, DoctorProfile, PatientDoctorChatMessage, ConsultationStatus, ResidentRecord, Medicine, RhwStats, BhwStats, StructuredAddress, BhwNotification, PatientNotification, PharmacyStats, ChatMessage, AISummary } from './types';
 import { Screens, CHAT_HISTORY_KEY } from './constants';
 import { translations } from './translations';
 
@@ -15,7 +18,6 @@ import ProfileScreen from './screens/patient/ProfileScreen';
 import DoctorDashboard from './screens/doctor/DoctorDashboard';
 import DoctorInboxScreen from './screens/doctor/DoctorInboxScreen';
 import PrescriptionFormScreen from './screens/doctor/PrescriptionFormScreen';
-import PharmacyDashboard from './screens/pharmacy/PharmacyDashboard';
 import RHUDashboard from './screens/rhu/RHUDashboard';
 import BHWDashboard from './screens/bhw/BHWDashboard';
 import ForumScreen from './screens/shared/ForumScreen';
@@ -23,6 +25,7 @@ import ProfessionalsDirectoryScreen from './screens/shared/ProfessionalsDirector
 import PrivateChatScreen from './screens/shared/PrivateChatScreen';
 import ConsultationDetailScreen from './screens/doctor/ConsultationDetailScreen';
 import PharmacyScanScreen from './screens/pharmacy/PharmacyScanScreen';
+import PharmacyDashboard from './screens/pharmacy/PharmacyDashboard';
 import QRDisplayScreen from './screens/patient/QRDisplayScreen';
 import ChatBubbleFAB from './components/ChatBubbleFAB';
 import DoctorChatScreen from './screens/patient/DoctorChatScreen';
@@ -109,14 +112,15 @@ export default function App() {
   const [isGuestUpgrading, setIsGuestUpgrading] = useState(false);
   const [residentRecords, setResidentRecords] = useState<ResidentRecord[]>([]);
   const [authLoading, setAuthLoading] = useState(true);
-  const [pharmacyStats, setPharmacyStats] = useState<PharmacyStats | null>(null);
   const [rhuStats, setRhuStats] = useState<RhwStats | null>(null);
   const [bhwStats, setBhwStats] = useState<BhwStats | null>(null);
+  const [pharmacyStats, setPharmacyStats] = useState<PharmacyStats | null>(null);
   const [bhwNotifications, setBhwNotifications] = useState<BhwNotification[]>([]);
   const [patientNotifications, setPatientNotifications] = useState<PatientNotification[]>([]);
+  const [pendingConsultationForGuest, setPendingConsultationForGuest] = useState<{ messages: ChatMessage[], summary: AISummary } | null>(null);
 
   const t = useCallback((key: string, params: { [key: string]: string | number } = {}) => {
-    const langKey = language === 'Aklanon' ? 'ak' : 'en';
+    const langKey = language === 'Tagalog' ? 'tg' : 'en';
     let str = translations[langKey][key] || key;
     
     Object.keys(params).forEach(pKey => {
@@ -125,6 +129,15 @@ export default function App() {
     
     return str;
   }, [language]);
+  
+    const navigateTo = useCallback((newScreen: Screen) => {
+    const patientScreens: Screen[] = [Screens.PATIENT_HOME, Screens.CONSULTATIONS, Screens.PRESCRIPTIONS, Screens.PROFILE];
+    if (patientScreens.includes(newScreen)) {
+        setActivePatientScreen(newScreen);
+    }
+    setScreen(newScreen);
+  }, []);
+
 
   // --- DATA FETCHING & REALTIME LISTENERS ---
   useEffect(() => {
@@ -133,11 +146,45 @@ export default function App() {
         if (firebaseUser) {
             const userProfile = await firebaseService.getUserProfile(firebaseUser.uid);
             if (userProfile) {
+                let justCreatedPendingConsultation = false;
+
+                // If a guest just registered and has a pending consultation, create it now.
+                if (pendingConsultationForGuest && userProfile.role === 'patient') {
+                    // Use a copy to avoid issues with state updates
+                    const consultationData = { ...pendingConsultationForGuest };
+                    
+                    // Clear the pending consultation state immediately
+                    setPendingConsultationForGuest(null);
+                    localStorage.removeItem(CHAT_HISTORY_KEY);
+
+                    try {
+                        // Directly call the service function. This will also handle the free credit.
+                        await firebaseService.addConsultation({
+                            patientId: userProfile.id,
+                            date: new Date().toISOString().split('T')[0],
+                            symptoms: consultationData.messages.filter(m => m.sender === 'user').map(m => m.text),
+                            aiSummary: consultationData.summary,
+                            chatHistory: consultationData.messages,
+                        });
+                        alert(t('pending_prescription_alert'));
+                        justCreatedPendingConsultation = true;
+                    } catch (error: any) {
+                        alert(error.message); // e.g., if credit check fails for some reason
+                    }
+                }
+
                 setUser(userProfile);
                 setRole(userProfile.role);
                 // Navigate based on role
                 switch (userProfile.role) {
-                    case 'patient': setScreen(Screens.PATIENT_HOME); break;
+                    case 'patient': 
+                        if (justCreatedPendingConsultation) {
+                            setScreen(Screens.PRESCRIPTIONS);
+                            setActivePatientScreen(Screens.PRESCRIPTIONS);
+                        } else {
+                            setScreen(Screens.PATIENT_HOME);
+                        }
+                        break;
                     case 'doctor': setScreen(Screens.DOCTOR_DASHBOARD); break;
                     case 'pharmacy': setScreen(Screens.PHARMACY_DASHBOARD); break;
                     case 'admin': setScreen(Screens.RHU_DASHBOARD); break;
@@ -157,37 +204,37 @@ export default function App() {
         setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [pendingConsultationForGuest, t]);
   
   // Fetch data when user logs in
   useEffect(() => {
     if (user) {
         const unsubs: (()=>void)[] = [];
         // Base Data
-        firebaseService.getUsers(setUsers).then(u => unsubs.push(u));
-        firebaseService.getConsultations(user, setConsultations).then(u => unsubs.push(u));
-        firebaseService.getPrescriptions(user, setPrescriptions).then(u => unsubs.push(u));
-        firebaseService.getForumPosts(setForumPosts).then(u => unsubs.push(u));
-        firebaseService.getDoctorProfiles(setDoctorProfiles).then(u => unsubs.push(u));
-        firebaseService.getMedicines(setMedicines).then(u => unsubs.push(u));
+        unsubs.push(firebaseService.getUsers(setUsers));
+        unsubs.push(firebaseService.getConsultations(user, setConsultations));
+        unsubs.push(firebaseService.getPrescriptions(user, setPrescriptions));
+        unsubs.push(firebaseService.getForumPosts(setForumPosts));
+        unsubs.push(firebaseService.getDoctorProfiles(setDoctorProfiles));
+        unsubs.push(firebaseService.getMedicines(setMedicines));
         
         // Role-specific data
-        firebaseService.getResidentRecords(user, setResidentRecords).then(u => unsubs.push(u));
+        unsubs.push(firebaseService.getResidentRecords(user, setResidentRecords));
         if (user.role === 'bhw') {
-            firebaseService.getBhwNotifications(user, setBhwNotifications).then(u => unsubs.push(u));
+            unsubs.push(firebaseService.getBhwNotifications(user, setBhwNotifications));
         }
         if (user.role === 'patient') {
-            firebaseService.getPatientNotifications(user.id, setPatientNotifications).then(u => unsubs.push(u));
+            unsubs.push(firebaseService.getPatientNotifications(user.id, setPatientNotifications));
         }
 
         // Analytics
-        firebaseService.getPharmacyStats(setPharmacyStats).then(u => unsubs.push(u));
-        firebaseService.getRhuStats(setRhuStats).then(u => unsubs.push(u));
-        firebaseService.getBhwStats(user, setBhwStats).then(u => unsubs.push(u));
+        unsubs.push(firebaseService.getRhuStats(setRhuStats));
+        unsubs.push(firebaseService.getBhwStats(user, setBhwStats));
+        unsubs.push(firebaseService.getPharmacyStats(setPharmacyStats));
         
         // Real-time chats
-        firebaseService.getPrivateChats(user.id, setPrivateChats).then(u => unsubs.push(u));
-        firebaseService.getPatientDoctorChats(user.id, setPatientDoctorChats).then(u => unsubs.push(u));
+        unsubs.push(firebaseService.getPrivateChats(user.id, setPrivateChats));
+        unsubs.push(firebaseService.getPatientDoctorChats(user.id, setPatientDoctorChats));
 
         return () => unsubs.forEach(unsub => unsub());
     }
@@ -264,16 +311,10 @@ export default function App() {
       setIsGuestUpgrading(true);
       setIsGuestExitModalOpen(false);
       navigateTo(Screens.REGISTER);
-  }, []);
+  }, [navigateTo]);
 
   // --- NAVIGATION ---
-  const navigateTo = useCallback((newScreen: Screen) => {
-    const patientScreens: Screen[] = [Screens.PATIENT_HOME, Screens.CONSULTATIONS, Screens.PRESCRIPTIONS, Screens.PROFILE];
-    if (patientScreens.includes(newScreen)) {
-        setActivePatientScreen(newScreen);
-    }
-    setScreen(newScreen);
-  }, []);
+
 
   const startSymptomCheck = useCallback((initialSymptom: string) => {
       localStorage.removeItem(CHAT_HISTORY_KEY);
@@ -313,19 +354,23 @@ export default function App() {
   }, []);
 
   const addReportToUser = useCallback((userId: string, report: { doctorId: string; doctorName: string; reason: string; date: string }) => {
-    firebaseService.addUserReport(userId, report);
+    firebaseService.addReportToUser(userId, report);
   }, []);
 
   const addProfessionalUser = useCallback((newUser: Omit<User, 'id'|'status'>) => {
     firebaseService.createProfessionalUser(newUser);
   }, []);
 
+  const updateProfessionalProfile = useCallback(async (userId: string, userUpdates: Partial<User>, profileUpdates: Partial<DoctorProfile>) => {
+    await firebaseService.updateProfessionalProfile(userId, userUpdates, profileUpdates);
+  }, []);
+
   const addResidentRecord = useCallback((details: Omit<ResidentRecord, 'id' | 'createdAt'>) => {
-    firebaseService.addResident(details);
+    firebaseService.addResidentRecord(details);
   }, []);
 
   const deleteResidentRecord = useCallback((recordId: string) => {
-    firebaseService.deleteResident(recordId);
+    firebaseService.deleteResidentRecord(recordId);
   }, []);
 
   const updateResidentRecord = useCallback((recordId: string, details: Partial<Omit<ResidentRecord, 'id' | 'createdAt'>>) => {
@@ -350,11 +395,22 @@ export default function App() {
     alert('Your new ID has been submitted for verification.');
   }, [user]);
 
-  const addConsultation = useCallback((consultation: Omit<Consultation, 'id' | 'patient' | 'doctor'>) => {
+  const addConsultation = useCallback(async (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor' | 'patientId' | 'status'>) => {
     if (!user) return;
     const fullConsultation = { ...consultation, patientId: user.id };
-    firebaseService.addConsultation(fullConsultation);
-  }, [user]);
+    try {
+        await firebaseService.addConsultation(fullConsultation);
+        localStorage.removeItem(CHAT_HISTORY_KEY);
+        alert(t('pending_prescription_alert'));
+        navigateTo(Screens.PRESCRIPTIONS);
+    } catch (error: any) {
+        alert(error.message);
+        // Navigate to profile screen if they've used their free credit
+        if (error.message.includes('free consultation')) {
+            navigateTo(Screens.PROFILE);
+        }
+    }
+  }, [user, navigateTo, t]);
 
   const updateConsultationStatus = useCallback((consultationId: string, status: ConsultationStatus, doctorId: string) => {
     firebaseService.updateConsultationStatus(consultationId, status, doctorId);
@@ -404,6 +460,14 @@ export default function App() {
     firebaseService.upgradeUserSubscription(userId, plan);
   }, []);
 
+  const grantPremiumSubscription = useCallback((userId: string) => {
+    firebaseService.grantPremiumSubscription(userId);
+  }, []);
+
+  const validateAndRemitPrescription = useCallback(async (prescriptionId: string) => {
+    return firebaseService.validateAndRemitPrescription(prescriptionId);
+  }, []);
+
   const value = useMemo(() => ({
     role,
     user,
@@ -429,6 +493,7 @@ export default function App() {
     deleteUser,
     addReportToUser,
     addProfessionalUser,
+    updateProfessionalProfile,
     residentRecords,
     addResidentRecord,
     deleteResidentRecord,
@@ -467,10 +532,14 @@ export default function App() {
     doctorProfiles,
     updateDoctorAvailability,
     upgradeUserSubscription,
-    pharmacyStats,
+    grantPremiumSubscription,
     rhuStats,
     bhwStats,
-  }), [role, user, users, screen, activePatientScreen, language, t, isGuestUpgrading, login, register, loginAsGuest, logout, promptGuestExit, navigateTo, startSymptomCheck, symptom, updateGuestDetails, updateUserProfile, updateUserStatus, deleteUser, addReportToUser, addProfessionalUser, residentRecords, addResidentRecord, deleteResidentRecord, updateResidentRecord, bhwNotifications, approveIdVerification, rejectIdVerification, patientNotifications, markPatientNotificationAsRead, updateValidId, consultations, addConsultation, updateConsultationStatus, prescriptions, medicines, addPrescription, updatePrescription, activeConsultation, activePrescription, activePatientForManagement, forumPosts, addForumPost, activePrivateChatRecipient, privateChats, sendPrivateMessage, activeDoctorChatRecipient, patientDoctorChats, sendPatientDoctorMessage, sendDoctorPatientMessage, markDoctorChatAsRead, doctorProfiles, updateDoctorAvailability, upgradeUserSubscription, pharmacyStats, rhuStats, bhwStats]);
+    pharmacyStats,
+    pendingConsultationForGuest,
+    setPendingConsultationForGuest,
+    validateAndRemitPrescription,
+  }), [role, user, users, screen, activePatientScreen, language, t, isGuestUpgrading, login, register, loginAsGuest, logout, promptGuestExit, navigateTo, startSymptomCheck, symptom, updateGuestDetails, updateUserProfile, updateUserStatus, deleteUser, addReportToUser, addProfessionalUser, updateProfessionalProfile, residentRecords, addResidentRecord, deleteResidentRecord, updateResidentRecord, bhwNotifications, approveIdVerification, rejectIdVerification, patientNotifications, markPatientNotificationAsRead, updateValidId, consultations, addConsultation, updateConsultationStatus, prescriptions, medicines, addPrescription, updatePrescription, activeConsultation, activePrescription, activePatientForManagement, forumPosts, addForumPost, activePrivateChatRecipient, privateChats, sendPrivateMessage, activeDoctorChatRecipient, patientDoctorChats, sendPatientDoctorMessage, sendDoctorPatientMessage, markDoctorChatAsRead, doctorProfiles, updateDoctorAvailability, upgradeUserSubscription, grantPremiumSubscription, rhuStats, bhwStats, pharmacyStats, pendingConsultationForGuest, validateAndRemitPrescription]);
   
   if (authLoading) {
       return (

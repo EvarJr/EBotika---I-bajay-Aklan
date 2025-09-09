@@ -41,11 +41,11 @@ const PrescriptionCard: React.FC<{ prescription: Prescription; onClick: () => vo
 const PrescriptionsScreen: React.FC = () => {
   const { navigateTo, setActivePrescription, user, role, prescriptions } = useAppContext();
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<PrescriptionStatus>('Approved');
+  const [activeTab, setActiveTab] = useState<PrescriptionStatus>('Pending');
   
   const tabs: { key: PrescriptionStatus, label: string }[] = [
-      { key: 'Approved', label: t('prescriptions_tab_approved') },
       { key: 'Pending', label: t('prescriptions_tab_pending') },
+      { key: 'Approved', label: t('prescriptions_tab_approved') },
       { key: 'Denied', label: t('prescriptions_tab_denied') },
       { key: 'Remitted', label: t('prescriptions_tab_remitted') },
   ];

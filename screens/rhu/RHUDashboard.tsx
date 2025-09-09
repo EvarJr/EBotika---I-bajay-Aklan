@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppContext } from '../../hooks/useAppContext';
 import { MockChart, StatCard } from '../../components/Dashboard';
-import { Screens } from '../../constants';
+import { Screens, DOCTOR_SPECIALIZATIONS } from '../../constants';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { User } from '../../types';
-import { ChevronDownIcon, TrashIcon, UsersGroupIcon, UserCheckIcon } from '../../components/Icons';
+import type { User, DoctorProfile, DoctorSpecialty } from '../../types';
+import { ChevronDownIcon, TrashIcon, UsersGroupIcon, UserCheckIcon, SparklesIcon, StarIcon, EditIcon } from '../../components/Icons';
 
 type AddUserModalProps = {
     onClose: () => void;
@@ -63,7 +63,50 @@ const AddUserModal: React.FC<AddUserModalProps> = ({ onClose, titleKey, allowedR
     );
 };
 
-const PatientCard: React.FC<{ patient: User }> = ({ patient }) => {
+const EditProfessionalUserModal: React.FC<{ user: User, doctorProfile: DoctorProfile | undefined, onClose: () => void }> = ({ user, doctorProfile, onClose }) => {
+    const { updateProfessionalProfile, t } = useAppContext();
+    const [name, setName] = useState(user.name);
+    const [specialty, setSpecialty] = useState<DoctorSpecialty>(doctorProfile?.specialty || 'General Physician');
+    
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const userUpdates: Partial<User> = { name };
+        const profileUpdates: Partial<DoctorProfile> = user.role === 'doctor' ? { name, specialty } : { name };
+        
+        updateProfessionalProfile(user.id, userUpdates, profileUpdates);
+        alert(`Profile for ${name} updated.`);
+        onClose();
+    };
+
+    return (
+        <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
+                <h2 className="text-xl font-bold mb-4 text-gray-800">Edit Professional User</h2>
+                <form onSubmit={handleSubmit} className="space-y-3">
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={t('register_fullname_label')} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" required />
+                    <p className="text-sm text-gray-500 bg-gray-100 p-2 rounded-md">{user.email}</p>
+                    
+                    {user.role === 'doctor' && (
+                        <div>
+                            <label htmlFor="specialty" className="block text-xs font-medium text-gray-700 pt-1">Specialty</label>
+                            <select id="specialty" value={specialty} onChange={e => setSpecialty(e.target.value as DoctorSpecialty)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm -mt-1">
+                                {DOCTOR_SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    
+                    <div className="flex justify-end space-x-2 pt-2">
+                        <button type="button" onClick={onClose} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300">{t('guest_modal_cancel')}</button>
+                        <button type="submit" className="bg-teal-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-teal-600">Update Profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
+const PatientCard: React.FC<{ patient: User; onGrantPremium: (patient: User) => void; }> = ({ patient, onGrantPremium }) => {
     const { navigateTo, setActivePatientForManagement, t } = useAppContext();
 
     const handleReview = () => {
@@ -74,25 +117,37 @@ const PatientCard: React.FC<{ patient: User }> = ({ patient }) => {
     const isBanned = patient.status === 'banned';
 
     return (
-        <button 
-            onClick={handleReview}
-            className={`w-full text-left bg-white p-2 rounded-md flex justify-between items-center text-sm hover:bg-gray-200 transition ${isBanned ? 'opacity-60' : ''}`}
-        >
-            <div className="flex items-center space-x-2">
+        <div className={`w-full bg-white p-2 rounded-md flex justify-between items-center text-sm ${isBanned ? 'opacity-60' : ''}`}>
+             <button onClick={handleReview} className="flex-grow flex items-center space-x-2 text-left hover:bg-gray-50 rounded-md p-1">
                 <img src={patient.avatarUrl || `https://ui-avatars.com/api/?name=${patient.name.replace(' ', '+')}&background=random`} alt={patient.name} className="w-8 h-8 rounded-full object-cover" />
                 <div>
                     <p className="font-semibold text-gray-800">{patient.name}</p>
                     <p className="text-gray-500">{patient.email}</p>
                 </div>
+            </button>
+            <div className="flex items-center space-x-2 pl-2">
+                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${isBanned ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                    {isBanned ? t('patient_status_banned') : t('patient_status_active')}
+                </span>
+                {patient.isPremium ? (
+                    <div className="p-2 text-yellow-500" title="Premium User">
+                        <StarIcon />
+                    </div>
+                ) : (
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onGrantPremium(patient); }}
+                        className="p-2 text-blue-500 hover:bg-blue-100 rounded-full transition-colors"
+                        title={t('rhu_grant_premium_button_tooltip')}
+                    >
+                        <SparklesIcon />
+                    </button>
+                )}
             </div>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${isBanned ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                {isBanned ? t('patient_status_banned') : t('patient_status_active')}
-            </span>
-        </button>
+        </div>
     );
 };
 
-const BarangayAccordion: React.FC<{ barangay: string; patients: User[]; }> = ({ barangay, patients }) => {
+const BarangayAccordion: React.FC<{ barangay: string; patients: User[]; onGrantPremium: (patient: User) => void; }> = ({ barangay, patients, onGrantPremium }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
@@ -107,7 +162,7 @@ const BarangayAccordion: React.FC<{ barangay: string; patients: User[]; }> = ({ 
             {isOpen && (
                 <div className="p-2 space-y-2 bg-gray-50/50">
                     {patients.map(patient => (
-                        <PatientCard key={patient.id} patient={patient} />
+                        <PatientCard key={patient.id} patient={patient} onGrantPremium={onGrantPremium} />
                     ))}
                 </div>
             )}
@@ -116,13 +171,20 @@ const BarangayAccordion: React.FC<{ barangay: string; patients: User[]; }> = ({ 
 };
 
 
-const ProfessionalUserCard: React.FC<{ user: User; onDelete?: () => void }> = ({ user, onDelete }) => (
+const ProfessionalUserCard: React.FC<{ user: User; onDelete: () => void; onEdit: () => void; }> = ({ user, onDelete, onEdit }) => (
     <div className="bg-gray-50 p-2 rounded-md flex justify-between items-center text-sm">
         <div>
             <p className="font-semibold text-gray-800">{user.name}</p>
             <p className="text-gray-500">{user.email}</p>
         </div>
-        {onDelete && (
+        <div className="flex items-center space-x-1">
+            <button
+                onClick={onEdit}
+                className="p-2 text-blue-500 hover:bg-blue-100 rounded-full transition-colors"
+                aria-label={`Edit user ${user.name}`}
+            >
+                <EditIcon />
+            </button>
             <button
                 onClick={onDelete}
                 className="p-2 text-red-500 hover:bg-red-100 rounded-full transition-colors"
@@ -130,7 +192,7 @@ const ProfessionalUserCard: React.FC<{ user: User; onDelete?: () => void }> = ({
             >
                 <TrashIcon />
             </button>
-        )}
+        </div>
     </div>
 );
 
@@ -160,11 +222,13 @@ const ConfirmationModal: React.FC<{
 };
 
 const RHUDashboard: React.FC = () => {
-    const { user, logout, navigateTo, t, users, consultations, prescriptions, deleteUser, rhuStats } = useAppContext();
+    const { user, logout, navigateTo, t, users, doctorProfiles, consultations, prescriptions, deleteUser, rhuStats, grantPremiumSubscription } = useAppContext();
     const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+    const [userToEdit, setUserToEdit] = useState<User | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
+    const [patientToGrantPremium, setPatientToGrantPremium] = useState<User | null>(null);
     const [activeTab, setActiveTab] = useState<'overview' | 'management'>('overview');
     const dropdownRef = useRef<HTMLDivElement>(null);
     
@@ -196,6 +260,13 @@ const RHUDashboard: React.FC = () => {
         if (userToDelete) {
             deleteUser(userToDelete.id);
             setUserToDelete(null);
+        }
+    };
+
+    const handleConfirmGrantPremium = () => {
+        if (patientToGrantPremium) {
+            grantPremiumSubscription(patientToGrantPremium.id);
+            setPatientToGrantPremium(null);
         }
     };
 
@@ -248,7 +319,15 @@ const RHUDashboard: React.FC = () => {
                     ]}
                 />
             )}
+            {userToEdit && (
+                <EditProfessionalUserModal
+                    user={userToEdit}
+                    doctorProfile={doctorProfiles.find(dp => dp.userId === userToEdit.id)}
+                    onClose={() => setUserToEdit(null)}
+                />
+            )}
             {userToDelete && <ConfirmationModal title={t('rhu_delete_user_confirm_title')} text={t('rhu_delete_user_confirm_text', { name: userToDelete.name })} onConfirm={handleConfirmDelete} onClose={() => setUserToDelete(null)} />}
+            {patientToGrantPremium && <ConfirmationModal title={t('rhu_grant_premium_confirm_title')} text={t('rhu_grant_premium_confirm_text', { name: patientToGrantPremium.name })} onConfirm={handleConfirmGrantPremium} onClose={() => setPatientToGrantPremium(null)} />}
             
             <header className="bg-white p-4 shadow-md z-10">
                  <div className="flex justify-between items-center">
@@ -319,15 +398,15 @@ const RHUDashboard: React.FC = () => {
                                 <div className="space-y-4 mt-4">
                                     <div className="border-t pt-3">
                                         <h3 className="font-bold text-base text-blue-600 mb-2">{t('rhu_doctor_management_title')} ({doctors.length})</h3>
-                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{doctors.map(doc => <ProfessionalUserCard key={doc.id} user={doc} onDelete={() => setUserToDelete(doc)} />)}</div>
+                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{doctors.map(doc => <ProfessionalUserCard key={doc.id} user={doc} onEdit={() => setUserToEdit(doc)} onDelete={() => setUserToDelete(doc)} />)}</div>
                                     </div>
                                     <div className="border-t pt-3">
                                         <h3 className="font-bold text-base text-green-600 mb-2">{t('rhu_pharmacy_management_section_title')} ({pharmacists.length})</h3>
-                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{pharmacists.map(ph => <ProfessionalUserCard key={ph.id} user={ph} onDelete={() => setUserToDelete(ph)} />)}</div>
+                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{pharmacists.map(ph => <ProfessionalUserCard key={ph.id} user={ph} onEdit={() => setUserToEdit(ph)} onDelete={() => setUserToDelete(ph)} />)}</div>
                                     </div>
                                     <div className="border-t pt-3">
                                         <h3 className="font-bold text-base text-orange-600 mb-2">{t('rhu_bhw_management_section_title')} ({bhws.length})</h3>
-                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{bhws.map(bhw => <ProfessionalUserCard key={bhw.id} user={bhw} onDelete={() => setUserToDelete(bhw)} />)}</div>
+                                        <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar pr-1">{bhws.map(bhw => <ProfessionalUserCard key={bhw.id} user={bhw} onEdit={() => setUserToEdit(bhw)} onDelete={() => setUserToDelete(bhw)} />)}</div>
                                     </div>
                                 </div>
                             </div>
@@ -336,7 +415,7 @@ const RHUDashboard: React.FC = () => {
                                 <h2 className="font-bold text-lg text-gray-800 mb-2">{t('rhu_patient_management_title')} ({patientUsers.length})</h2>
                                 <div className="max-h-60 overflow-y-auto custom-scrollbar border rounded-md">
                                     {Object.entries(groupedPatients).map(([barangay, patients]) => (
-                                        <BarangayAccordion key={barangay} barangay={barangay} patients={patients} />
+                                        <BarangayAccordion key={barangay} barangay={barangay} patients={patients} onGrantPremium={setPatientToGrantPremium} />
                                     ))}
                                 </div>
                             </div>

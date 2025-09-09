@@ -42,7 +42,7 @@ const DoctorChatScreen: React.FC = () => {
     const chatEndRef = useRef<HTMLDivElement>(null);
     const [isLocked, setIsLocked] = useState(true);
     const [statusMessage, setStatusMessage] = useState('');
-    const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
+    const [timer, setTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
     const conversationId = user && activeDoctorChatRecipient ? [user.id, activeDoctorChatRecipient.userId].sort().join('-') : null;
 
@@ -50,45 +50,42 @@ const DoctorChatScreen: React.FC = () => {
         if (timer) clearInterval(timer);
         if (!user || !activeDoctorChatRecipient) return;
 
-        if (user.isPremium) {
-            setIsLocked(false);
-            setStatusMessage(t('chat_premium_status'));
-            return;
-        }
-
         const doctorId = activeDoctorChatRecipient.userId;
-        const passExpiry = user.chatAccessPasses?.[doctorId];
 
         const updateStatus = () => {
             const now = Date.now();
-            if (passExpiry && passExpiry > now) {
+            
+            if (user.subscriptionType === 'family') {
                 setIsLocked(false);
-                const remaining = passExpiry - now;
-                const hours = Math.floor(remaining / (1000 * 60 * 60));
-                const minutes = Math.floor((remaining / 1000 / 60) % 60);
-                setStatusMessage(t('chat_pass_active_status', { time: `${hours}h ${minutes}m` }));
-            } else if ((user.weeklyChatCredits || 0) > 0) {
-                setIsLocked(false);
-                setStatusMessage(t('chat_credit_available_status'));
-            } else {
-                setIsLocked(true);
-                const oneWeek = 7 * 24 * 60 * 60 * 1000;
-                const resetTime = (user.lastCreditReset || now) + oneWeek;
-                const remaining = resetTime - now;
-                if (remaining > 0) {
-                    const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-                    const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    setStatusMessage(t('chat_no_credit_status', { days, hours }));
-                } else {
-                    // This case means credits should have reset.
-                    setIsLocked(false);
-                    setStatusMessage(t('chat_credit_available_status'));
-                }
+                setStatusMessage(t('chat_premium_status'));
+                return;
             }
+            
+            if (user.subscriptionType === 'individual') {
+                const passExpiry = user.chatAccessPasses?.[doctorId];
+                if (passExpiry && passExpiry > now) {
+                    setIsLocked(false);
+                    const remaining = passExpiry - now;
+                    const hours = Math.floor(remaining / (1000 * 60 * 60));
+                    const minutes = Math.floor((remaining / 1000 / 60) % 60);
+                    setStatusMessage(t('chat_pass_active_status_8hr', { hours, minutes }));
+                } else if ((user.monthlyDirectChatCredits || 0) > 0) {
+                    setIsLocked(false);
+                    setStatusMessage(t('chat_monthly_credits_available', { count: user.monthlyDirectChatCredits || 0 }));
+                } else {
+                    setIsLocked(true);
+                    setStatusMessage(t('chat_no_monthly_credits'));
+                }
+                return;
+            }
+
+            // Standard User
+            setIsLocked(true);
+            setStatusMessage(t('chat_premium_only_feature'));
         };
 
-        updateStatus(); // Initial check
-        const newTimer = setInterval(updateStatus, 1000 * 30); // Update every 30 seconds
+        updateStatus();
+        const newTimer = setInterval(updateStatus, 1000 * 30);
         setTimer(newTimer);
 
         return () => {

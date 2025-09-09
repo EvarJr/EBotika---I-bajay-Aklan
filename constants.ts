@@ -28,6 +28,14 @@ export const Screens = {
 export const CHAT_HISTORY_KEY = 'ebotikaChatHistory';
 export const SESSION_KEY = 'ebotikaSession';
 
+export const DOCTOR_SPECIALIZATIONS = [
+    'General Physician',
+    'Pediatrician',
+    'Cardiologist',
+    'Dermatologist',
+    'OB-GYN',
+] as const;
+
 
 export const MOCK_SYMPTOMS: { key: string, emoji: string }[] = [
     { key: 'symptom_headache', emoji: '🤯' },

@@ -3,7 +3,7 @@ import { useAppContext } from '../../hooks/useAppContext';
 import { Screens, IBAJAY_ADDRESS_DATA } from '../../constants';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { ResidentRecord, StructuredAddress, BhwNotification } from '../../types';
-import { TrashIcon, QRIcon, EditIcon, UserPlusIcon, UserCheckIcon, UsersIcon } from '../../components/Icons';
+import { TrashIcon, EditIcon, UserPlusIcon, UserCheckIcon, UsersIcon } from '../../components/Icons';
 import { MockChart, StatCard } from '../../components/Dashboard';
 
 const barangayOptions = Object.keys(IBAJAY_ADDRESS_DATA);
@@ -365,14 +365,7 @@ const BHWDashboard: React.FC = () => {
 
                 <div className="bg-white p-4 rounded-lg shadow">
                      <h2 className="font-bold text-lg text-gray-800 mb-3">{t('bhw_quick_actions_title')}</h2>
-                     <div className="grid grid-cols-2 gap-3">
-                        <button
-                            onClick={() => navigateTo(Screens.PHARMACY_SCAN)}
-                            className="w-full flex flex-col items-center justify-center bg-blue-50 text-blue-700 font-bold py-3 px-2 rounded-lg hover:bg-blue-100 transition"
-                        >
-                            <QRIcon />
-                            <span className="mt-1 text-sm">{t('bhw_scan_qr_button')}</span>
-                        </button>
+                     <div className="grid grid-cols-1 gap-3">
                          <button 
                             onClick={handleOpenAddModal}
                             className="w-full flex flex-col items-center justify-center bg-green-50 text-green-700 font-bold py-3 px-2 rounded-lg hover:bg-green-100 transition"

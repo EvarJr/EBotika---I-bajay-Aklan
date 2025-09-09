@@ -1,630 +1,538 @@
 /**
- * Firebase Service Mock
- * 
- * This file mocks the interactions with Firebase services (Auth, Firestore, Storage).
- * It centralizes all application data, simulates a normalized database structure,
- * and provides mock real-time updates to the UI.
+ * Firebase Service
+ *
+ * This file implements the interactions with Firebase services (Auth, Firestore, Storage).
+ * It replaces the previous mock implementation with live Firebase calls.
  */
-import type { User, Role, Consultation, Prescription, ForumPost, DoctorProfile, ResidentRecord, PrivateChatMessage, PatientDoctorChatMessage, ConsultationStatus, Medicine, PharmacyStats, RhwStats, BhwStats, AISummary, StructuredAddress, BhwNotification, PatientNotification } from '../types';
+import { auth, db, storage } from '../firebaseConfig';
+import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut as firebaseSignOut,
+    onAuthStateChanged,
+    updateProfile
+} from "firebase/auth";
+import {
+    collection,
+    doc,
+    addDoc,
+    setDoc,
+    getDoc,
+    getDocs,
+    updateDoc,
+    deleteDoc,
+    onSnapshot,
+    query,
+    where,
+    orderBy,
+    serverTimestamp,
+    runTransaction,
+    arrayUnion,
+    writeBatch,
+    Timestamp,
+    increment
+} from "firebase/firestore";
+import {
+    ref,
+    uploadBytes,
+    getDownloadURL
+} from "firebase/storage";
+import type { User, Role, Consultation, Prescription, ForumPost, DoctorProfile, ResidentRecord, PrivateChatMessage, PatientDoctorChatMessage, ConsultationStatus, Medicine, RhwStats, BhwStats, AISummary, StructuredAddress, BhwNotification, PatientNotification, PharmacyStats, DoctorSpecialty } from '../types';
 
-// --- MOCK DATABASE (NORMALIZED) ---
-let MOCK_DB = {
-    users: [
-        // --- PATIENT ACCOUNTS (RESET TO DEFAULT) ---
-        { id: 'p1', name: 'Juan dela Cruz', email: 'patient@ebotika.ph', role: 'patient', contactNumber: '09123456789', address: { barangay: 'Poblacion', purok: 'Purok 3', streetAddress: '123 Rizal Ave' }, avatarUrl: 'https://picsum.photos/id/237/200/200', status: 'active', validIdUrl: 'https://placehold.co/600x400.png?text=Valid+ID', weeklyChatCredits: 1, lastCreditReset: Date.now(), chatAccessPasses: {}, isVerifiedByBhw: true },
-        { id: 'p2', name: 'Anna Reyes', email: 'anna@ebotika.ph', role: 'patient', contactNumber: '09987654321', address: { barangay: 'Laguinbanua', purok: 'Purok 1', streetAddress: '456 Bonifacio St' }, avatarUrl: 'https://picsum.photos/id/338/200/200', status: 'active', validIdUrl: 'https://placehold.co/600x400.png?text=Valid+ID', weeklyChatCredits: 1, lastCreditReset: Date.now(), chatAccessPasses: {}, isVerifiedByBhw: true },
-        { id: 'p3', name: 'Pedro Penduko', email: 'pedro@ebotika.ph', role: 'patient', contactNumber: '09178765432', address: { barangay: 'Poblacion', purok: 'Purok 5', streetAddress: '789 Mabini Blvd' }, avatarUrl: 'https://picsum.photos/id/433/200/200', status: 'active', validIdUrl: 'https://placehold.co/600x400.png?text=Valid+ID', weeklyChatCredits: 1, lastCreditReset: Date.now(), chatAccessPasses: {}, isVerifiedByBhw: true },
-        
-        // --- PROFESSIONAL & SYSTEM ACCOUNTS (SETUP DATA) ---
-        { id: 'd1', name: 'Dr. Maria Dela Cruz', email: 'doctor@ebotika.ph', role: 'doctor', avatarUrl: 'https://picsum.photos/id/1027/200/200', isOnline: true, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } },
-        { id: 'd2', name: 'Dr. Jose Rizal', email: 'pedia@ebotika.ph', role: 'doctor', avatarUrl: 'https://picsum.photos/id/1025/200/200', isOnline: true, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } },
-        { id: 'd3', name: 'Dr. Gabriela Silang', email: 'cardio@ebotika.ph', role: 'doctor', avatarUrl: 'https://picsum.photos/id/1011/200/200', isOnline: false, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } },
-        { id: 'ph1', name: 'Botika Pharmacist', email: 'pharmacy@ebotika.ph', role: 'pharmacy', avatarUrl: 'https://picsum.photos/id/10/200/200', isOnline: false, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } },
-        { id: 'a1', name: 'RHU Admin', email: 'admin@ebotika.ph', role: 'admin', avatarUrl: 'https://picsum.photos/id/20/200/200', isOnline: true, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } },
-        { id: 'bhw1', name: 'BHW Maria Clara', email: 'bhw@ebotika.ph', role: 'bhw', avatarUrl: 'https://picsum.photos/id/30/200/200', isOnline: true, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' }, assignedBarangay: 'Poblacion' },
-    ] as User[],
-    consultations: [] as Omit<Consultation, 'patient' | 'doctor'>[],
-    prescriptions: [] as Omit<Prescription, 'patient' | 'doctor' | 'doctorName'>[],
-    medicines: [
-        { id: 'med-1', name: 'Paracetamol' }, { id: 'med-2', name: 'Amoxicillin' }, { id: 'med-3', name: 'Salbutamol' }, { id: 'med-4', name: 'Loratadine' }, { id: 'med-5', name: 'Mefenamic Acid' }, { id: 'med-6', name: 'Cetirizine' },
-    ] as Medicine[],
-    doctorProfiles: [
-        { id: 'doc-prof-1', userId: 'd1', name: 'Dr. Maria Dela Cruz', specialty: 'specialty_gp', avatarUrl: 'https://picsum.photos/id/1027/200/200', availability: 'Available' },
-        { id: 'doc-prof-2', userId: 'd2', name: 'Dr. Jose Rizal', specialty: 'specialty_pedia', avatarUrl: 'https://picsum.photos/id/1025/200/200', availability: 'Available' },
-        { id: 'doc-prof-3', userId: 'd3', name: 'Dr. Gabriela Silang', specialty: 'specialty_cardio', avatarUrl: 'https://picsum.photos/id/1011/200/200', availability: 'On Leave' },
-    ] as DoctorProfile[],
-    forumPosts: [] as Omit<ForumPost, 'author'>[],
-    residentRecords: [
-         { id: 'res-1', name: 'Juan dela Cruz', contactNumber: '09123456789', address: { barangay: 'Poblacion', purok: 'Purok 3', streetAddress: '123 Rizal Ave' }, createdAt: Date.now() - 86400000 * 5 },
-         { id: 'res-2', name: 'Anna Reyes', contactNumber: '09987654321', address: { barangay: 'Laguinbanua', purok: 'Purok 1', streetAddress: '456 Bonifacio St' }, createdAt: Date.now() - 86400000 * 3 },
-         { id: 'res-3', name: 'Pedro Penduko', contactNumber: '09178765432', address: { barangay: 'Poblacion', purok: 'Purok 5', streetAddress: '789 Mabini Blvd' }, createdAt: Date.now() - 86400000 * 2 },
-    ] as ResidentRecord[],
-    bhwNotifications: [] as BhwNotification[],
-    patientNotifications: [] as PatientNotification[],
-    privateChats: {} as Record<string, PrivateChatMessage[]>,
-    patientDoctorChats: {} as Record<string, PatientDoctorChatMessage[]>,
+// --- HELPER FUNCTIONS ---
+
+/**
+ * Converts a Firestore document snapshot into a data object including its ID.
+ */
+const docWithId = (doc: any) => ({ ...doc.data(), id: doc.id });
+
+/**
+ * A generic function to create a real-time listener on a Firestore collection.
+ * @param collectionPath The path to the collection.
+ * @param setter The React state setter function.
+ * @param hydrationFunc A function to process and join related data for each document.
+ * @param queryConstraints Optional query constraints (where, orderBy, etc.).
+ */
+const createListener = (collectionPath: string, setter: Function, hydrationFunc: (doc: any) => Promise<any> = async (d) => d, ...queryConstraints: any[]) => {
+    const q = query(collection(db, collectionPath), ...queryConstraints);
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const data = await Promise.all(snapshot.docs.map(d => hydrationFunc(docWithId(d))));
+        setter(data);
+    });
+    return unsubscribe;
 };
 
-// --- MOCK REAL-TIME LISTENERS (PUB/SUB) ---
-const setters = {
-    users: new Set<Function>(),
-    consultations: new Set<Function>(),
-    prescriptions: new Set<Function>(),
-    medicines: new Set<Function>(),
-    forumPosts: new Set<Function>(),
-    doctorProfiles: new Set<Function>(),
-    residentRecords: new Set<Function>(),
-    privateChats: new Set<Function>(),
-    patientDoctorChats: new Set<Function>(),
-    pharmacyStats: new Set<Function>(),
-    rhuStats: new Set<Function>(),
-    bhwStats: new Set<Function>(),
-    bhwNotifications: new Set<Function>(),
-    patientNotifications: new Set<Function>(),
-};
-
-// --- DATA HYDRATION & NOTIFICATION ---
-const findUser = (id: string) => MOCK_DB.users.find(u => u.id === id)!;
-const findDoctorProfile = (userId: string) => MOCK_DB.doctorProfiles.find(d => d.userId === userId);
-
-const hydrateConsultation = (c: Omit<Consultation, 'patient'|'doctor'>): Consultation => ({
-    ...c,
-    patient: findUser(c.patientId),
-    doctor: c.doctorId ? findDoctorProfile(c.doctorId) : undefined,
-});
-
-const hydratePrescription = (p: Omit<Prescription, 'patient'|'doctor'|'doctorName'>): Prescription => {
-    const doctorProfile = p.doctorId ? findDoctorProfile(p.doctorId) : undefined;
-    return {
-        ...p,
-        patient: findUser(p.patientId),
-        doctor: doctorProfile,
-        doctorName: doctorProfile?.name || "Pending Review",
-    }
-};
-
-const hydrateForumPost = (p: Omit<ForumPost, 'author'>): ForumPost => ({
-    ...p,
-    author: findUser(p.authorId),
-});
-
-
-const notify = (key: keyof typeof setters, data: any) => {
-    setters[key].forEach(setter => setter(data));
-};
-
-const notifyAllData = (currentUser?: User) => {
-    notify('users', MOCK_DB.users);
-    const hydratedConsultations = MOCK_DB.consultations.map(hydrateConsultation);
-    const filteredConsultations = currentUser?.role === 'patient' ? hydratedConsultations.filter(c => c.patientId === currentUser.id) : hydratedConsultations;
-    notify('consultations', filteredConsultations);
-    
-    const hydratedPrescriptions = MOCK_DB.prescriptions.map(hydratePrescription);
-    const filteredPrescriptions = currentUser?.role === 'patient' ? hydratedPrescriptions.filter(p => p.patientId === currentUser.id) : hydratedPrescriptions;
-    notify('prescriptions', filteredPrescriptions);
-    
-    notify('medicines', MOCK_DB.medicines);
-    notify('forumPosts', MOCK_DB.forumPosts.map(hydrateForumPost));
-    notify('doctorProfiles', MOCK_DB.doctorProfiles);
-    
-    const filteredResidentRecords = currentUser?.role === 'bhw' && currentUser.assignedBarangay 
-        ? MOCK_DB.residentRecords.filter(r => r.address.barangay === currentUser.assignedBarangay) 
-        : MOCK_DB.residentRecords;
-    notify('residentRecords', filteredResidentRecords);
-    
-    const filteredBhwNotifications = currentUser?.role === 'bhw' && currentUser.assignedBarangay
-        ? MOCK_DB.bhwNotifications.filter(n => n.barangay === currentUser.assignedBarangay)
-        : MOCK_DB.bhwNotifications;
-    notify('bhwNotifications', filteredBhwNotifications);
-    
-    if (currentUser?.id) {
-        const filteredPatientNotifications = MOCK_DB.patientNotifications.filter(n => n.userId === currentUser.id);
-        notify('patientNotifications', filteredPatientNotifications);
-    }
-
-
-    // Analytics
-    notify('pharmacyStats', calculatePharmacyStats());
-    notify('rhuStats', calculateRhuStats());
-    notify('bhwStats', calculateBhwStats(currentUser));
-};
-
-const createListener = <T>(key: keyof typeof setters, setter: React.Dispatch<React.SetStateAction<T>>, initialData: T) => {
-    setters[key].add(setter);
-    setter(initialData); // Initial load
-    return () => { setters[key].delete(setter); };
-};
-
-// --- CHAT CREDIT LOGIC ---
-const _checkAndResetWeeklyCredits = (user: User): User => {
-    if (user.role !== 'patient' || user.isPremium) {
-        return user;
-    }
-    const now = Date.now();
-    const oneWeek = 7 * 24 * 60 * 60 * 1000;
-    if (!user.lastCreditReset || (now - user.lastCreditReset > oneWeek)) {
-        return { ...user, weeklyChatCredits: 1, lastCreditReset: now };
-    }
-    return user;
-};
-
-
-// --- MOCK AUTHENTICATION ---
-let MOCK_AUTH_USERS: { [email: string]: { uid: string, password: string } } = {
-    'patient@ebotika.ph': { uid: 'p1', password: 'password' },
-    'anna@ebotika.ph': { uid: 'p2', password: 'password' },
-    'pedro@ebotika.ph': { uid: 'p3', password: 'password' },
-    'doctor@ebotika.ph': { uid: 'd1', password: 'password' },
-    'pedia@ebotika.ph': { uid: 'd2', password: 'password' },
-    'cardio@ebotika.ph': { uid: 'd3', password: 'password' },
-    'pharmacy@ebotika.ph': { uid: 'ph1', password: 'password' },
-    'admin@ebotika.ph': { uid: 'a1', password: 'password' },
-    'bhw@ebotika.ph': { uid: 'bhw1', password: 'password' },
-};
-let currentAuthListener: ((user: { uid: string } | null) => void) | null = null;
-let currentFirebaseUser: { uid: string } | null = null;
-
-const notifyAuthListener = () => {
-    if (currentAuthListener) {
-        currentAuthListener(currentFirebaseUser);
-    }
-};
+// --- AUTHENTICATION ---
 
 export const onAuthChange = (callback: (user: { uid: string } | null) => void) => {
-    currentAuthListener = callback;
-    setTimeout(() => notifyAuthListener(), 0); // Simulate async
-    return () => { currentAuthListener = null; };
+    return onAuthStateChanged(auth, callback);
 };
 
-export const signIn = async (email: string, password: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-        setTimeout(async () => {
-            const authUser = MOCK_AUTH_USERS[email];
-            if (authUser && authUser.password === password) {
-                const userProfile = await getUserProfile(authUser.uid);
-                if (userProfile?.status === 'banned') {
-                    reject(new Error('This account has been banned.'));
-                    return;
-                }
-                currentFirebaseUser = { uid: authUser.uid };
-                notifyAuthListener();
-                resolve();
-            } else {
-                reject(new Error('Invalid credentials'));
-            }
-        }, 1000);
-    });
+export const signIn = (email: string, password: string) => {
+    return signInWithEmailAndPassword(auth, email, password);
 };
 
-export const signUp = async (details: { name: string, email: string, password: string, contactNumber: string, address: StructuredAddress, validIdFile: File }): Promise<void> => {
-     return new Promise((resolve, reject) => {
-        setTimeout(async () => {
-            if (MOCK_AUTH_USERS[details.email]) {
-                reject(new Error('Email already in use.'));
-                return;
-            }
+export const signUp = async (details: { name: string, email: string, password: string, contactNumber: string, address: StructuredAddress, validIdFile: File }) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, details.email, details.password);
+    const user = userCredential.user;
+    await updateProfile(user, { displayName: details.name });
 
-            const isVerifiedResident = MOCK_DB.residentRecords.some(record =>
-                record.name.trim().toLowerCase() === details.name.trim().toLowerCase() &&
-                record.address.barangay.toLowerCase() === details.address.barangay.toLowerCase() &&
-                record.address.purok.toLowerCase() === details.address.purok.toLowerCase()
-            );
+    const validIdUrl = await uploadFile(details.validIdFile, `valid-ids/${user.uid}`);
 
-            if (!isVerifiedResident) {
-                reject(new Error('Registration failed. Your name and address do not match the resident master list. Please contact your Barangay Health Worker.'));
-                return;
-            }
-            
-            const validIdUrl = await uploadFile(details.validIdFile, 'valid-ids');
-            const newUid = `user-${Date.now()}`;
-            MOCK_AUTH_USERS[details.email] = { uid: newUid, password: details.password };
-            
-            const newUserProfile: User = {
-                id: newUid,
-                name: details.name,
-                email: details.email,
-                role: 'patient',
-                contactNumber: details.contactNumber,
-                address: details.address,
-                validIdUrl,
-                status: 'active',
-                isPremium: false,
-                weeklyChatCredits: 1,
-                lastCreditReset: Date.now(),
-                chatAccessPasses: {},
-                isVerifiedByBhw: false, // BHW must verify ID
-            };
-            MOCK_DB.users = [...MOCK_DB.users, newUserProfile];
-            
-            // Create a notification for the BHW
-            const notification: BhwNotification = {
-                id: `notif-${Date.now()}`,
-                userId: newUid,
-                userName: details.name,
-                validIdUrl,
-                timestamp: Date.now(),
-                barangay: details.address.barangay,
-            };
-            MOCK_DB.bhwNotifications = [notification, ...MOCK_DB.bhwNotifications];
-
-            notifyAllData();
-
-            currentFirebaseUser = { uid: newUid };
-            notifyAuthListener();
-            resolve();
-        }, 1500);
-     });
+    const newUserProfile: Omit<User, 'id'> = {
+        name: details.name,
+        email: details.email,
+        role: 'patient',
+        contactNumber: details.contactNumber,
+        address: details.address,
+        validIdUrl,
+        status: 'active',
+        isPremium: false,
+        isVerifiedByBhw: false,
+        hasUsedFreeConsultation: false,
+    };
+    
+    // Create user document in Firestore
+    await setDoc(doc(db, "users", user.uid), newUserProfile);
+    
+    // Create a notification for the BHW
+    const notification = {
+        userId: user.uid,
+        userName: details.name,
+        validIdUrl,
+        timestamp: serverTimestamp(),
+        barangay: details.address.barangay,
+    };
+    await addDoc(collection(db, 'bhwNotifications'), notification);
 };
 
-export const signOut = async (): Promise<void> => {
-    currentFirebaseUser = null;
-    notifyAuthListener();
+export const signOut = () => {
+    return firebaseSignOut(auth);
 };
 
-// --- MOCK STORAGE ---
-export const uploadFile = (file: File, path: string): Promise<string> => {
-    return new Promise(resolve => setTimeout(() => resolve(URL.createObjectURL(file)), 500));
+// --- STORAGE ---
+
+export const uploadFile = async (file: File, path: string): Promise<string> => {
+    const storageRef = ref(storage, path);
+    const snapshot = await uploadBytes(storageRef, file);
+    return await getDownloadURL(snapshot.ref);
 };
 
-// --- DYNAMIC ANALYTICS ---
-const calculatePharmacyStats = (): PharmacyStats => {
-    const remitted = MOCK_DB.prescriptions.filter(p => p.status === 'Remitted');
-    const topMeds = remitted.reduce((acc, p) => {
-        if(p.medicine) acc[p.medicine] = (acc[p.medicine] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
+// --- READ OPERATIONS (USERS) ---
+
+export const getUserProfile = async (uid: string): Promise<User | null> => {
+    const userDoc = await getDoc(doc(db, "users", uid));
+    if (userDoc.exists()) {
+        return { id: userDoc.id, ...userDoc.data() } as User;
+    }
+    return null;
+};
+
+export const getUsers = (setter: React.Dispatch<React.SetStateAction<User[]>>) => {
+    return createListener('users', setter, async (user) => user);
+};
+
+// --- DATA HYDRATION HELPERS ---
+
+const hydrateConsultation = async (c: any): Promise<Consultation> => {
+    const patientSnap = await getDoc(doc(db, 'users', c.patientId));
+    let doctorProfile: DoctorProfile | undefined;
+    if (c.doctorId) {
+        const doctorProfileQuery = query(collection(db, 'doctorProfiles'), where('userId', '==', c.doctorId));
+        const doctorProfileSnap = await getDocs(doctorProfileQuery);
+        if (!doctorProfileSnap.empty) {
+            doctorProfile = docWithId(doctorProfileSnap.docs[0]);
+        }
+    }
     return {
-        weeklyValidations: [{ name: 'Mon', uv: 22 }, { name: 'Tue', uv: 30 }, { name: 'Wed', uv: 25 }, { name: 'Thu', uv: 40 }, { name: 'Fri', uv: 35 }, { name: 'Sat', uv: 15 }, { name: 'Sun', uv: 10 }], // Mocked for now
-        topMeds: Object.entries(topMeds).sort((a,b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }))
+        ...c,
+        date: c.date instanceof Timestamp ? c.date.toDate().toISOString().split('T')[0] : c.date,
+        patient: { id: patientSnap.id, ...patientSnap.data() } as User,
+        doctor: doctorProfile,
     };
 };
-const calculateRhuStats = (): RhwStats => {
-    const urgencyCounts = MOCK_DB.consultations.reduce((acc, c) => {
-        const urgency = c.aiSummary?.urgency_level || 'Low';
-        acc[urgency] = (acc[urgency] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
-    const topPrescribed = MOCK_DB.prescriptions.reduce((acc, p) => {
-        if(p.medicine) acc[p.medicine] = (acc[p.medicine] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
 
+const hydratePrescription = async (p: any): Promise<Prescription> => {
+    const patientSnap = await getDoc(doc(db, 'users', p.patientId));
+    let doctorProfile: DoctorProfile | undefined;
+    let doctorName = "Pending Review";
+    if (p.doctorId) {
+        const doctorProfileQuery = query(collection(db, 'doctorProfiles'), where('userId', '==', p.doctorId));
+        const doctorProfileSnap = await getDocs(doctorProfileQuery);
+        if (!doctorProfileSnap.empty) {
+            doctorProfile = docWithId(doctorProfileSnap.docs[0]);
+            doctorName = doctorProfile?.name || "Dr. Unknown";
+        }
+    }
     return {
-        weeklyConsultations: [{name: 'Mon', uv: 10}, {name: 'Tue', uv: 15}, {name: 'Wed', uv: 8}, {name: 'Thu', uv: 22}, {name: 'Fri', uv: 18}, {name: 'Sat', uv: 9}, {name: 'Sun', uv: 4}],
-        urgencyBreakdown: Object.entries(urgencyCounts).map(([name, count]) => ({ name, count })),
-        topPrescribed: Object.entries(topPrescribed).sort((a,b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }))
+        ...p,
+        dateIssued: p.dateIssued instanceof Timestamp ? p.dateIssued.toDate().toISOString().split('T')[0] : p.dateIssued,
+        patient: { id: patientSnap.id, ...patientSnap.data() } as User,
+        doctor: doctorProfile,
+        doctorName: doctorName
     };
 };
-const calculateBhwStats = (currentUser: User | null): BhwStats => {
-    const recordsToAnalyze = currentUser?.role === 'bhw' && currentUser.assignedBarangay 
-        ? MOCK_DB.residentRecords.filter(r => r.address.barangay === currentUser.assignedBarangay)
-        : MOCK_DB.residentRecords;
-        
-    const distribution = recordsToAnalyze.reduce((acc, r) => {
-        const brgy = r.address.barangay || 'Unknown';
-        acc[brgy] = (acc[brgy] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
+
+const hydrateForumPost = async (p: any): Promise<ForumPost> => {
+    const authorSnap = await getDoc(doc(db, 'users', p.authorId));
     return {
-        weeklyRecordsAdded: [{ name: 'Mon', uv: 5 }, { name: 'Tue', uv: 8 }, { name: 'Wed', uv: 12 }, { name: 'Thu', uv: 7 }, { name: 'Fri', uv: 15 }, { name: 'Sat', uv: 4 }, { name: 'Sun', uv: 2 }],
-        residentDistribution: Object.entries(distribution).map(([name, count]) => ({ name, count })),
+        ...p,
+        timestamp: p.timestamp instanceof Timestamp ? p.timestamp.toDate().toLocaleString() : p.timestamp,
+        author: { id: authorSnap.id, ...authorSnap.data() } as User,
     };
 };
 
 // --- READ OPERATIONS (LISTENERS) ---
-export const getUserProfile = async (uid: string): Promise<User | null> => {
-    const user = MOCK_DB.users.find(u => u.id === uid);
-    if (user) {
-        const updatedUser = _checkAndResetWeeklyCredits(user);
-        if (JSON.stringify(user) !== JSON.stringify(updatedUser)) {
-            // Persist the change
-            MOCK_DB.users = MOCK_DB.users.map(u => u.id === uid ? updatedUser : u);
-        }
-        return updatedUser;
-    }
-    return null;
+export const getMedicines = (setter: React.Dispatch<React.SetStateAction<Medicine[]>>) => createListener('medicines', setter);
+export const getDoctorProfiles = (setter: React.Dispatch<React.SetStateAction<DoctorProfile[]>>) => createListener('doctorProfiles', setter);
+export const getConsultations = (currentUser: User, setter: React.Dispatch<React.SetStateAction<Consultation[]>>) => {
+    const constraints = currentUser.role === 'patient' ? [where('patientId', '==', currentUser.id), orderBy('date', 'desc')] : [orderBy('date', 'desc')];
+    return createListener('consultations', setter, hydrateConsultation, ...constraints);
 };
-export const getUsers = async (setter: React.Dispatch<React.SetStateAction<User[]>>) => createListener('users', setter, MOCK_DB.users);
-export const getMedicines = async (setter: React.Dispatch<React.SetStateAction<Medicine[]>>) => createListener('medicines', setter, MOCK_DB.medicines);
-export const getDoctorProfiles = async (setter: React.Dispatch<React.SetStateAction<DoctorProfile[]>>) => createListener('doctorProfiles', setter, MOCK_DB.doctorProfiles);
-export const getPrivateChats = async (userId: string, setter: React.Dispatch<React.SetStateAction<any>>) => createListener('privateChats', setter, MOCK_DB.privateChats);
-export const getPatientDoctorChats = async (userId: string, setter: React.Dispatch<React.SetStateAction<any>>) => createListener('patientDoctorChats', setter, MOCK_DB.patientDoctorChats);
-export const getPharmacyStats = async (setter: React.Dispatch<React.SetStateAction<any>>) => createListener('pharmacyStats', setter, calculatePharmacyStats());
-export const getRhuStats = async (setter: React.Dispatch<React.SetStateAction<any>>) => createListener('rhuStats', setter, calculateRhuStats());
+export const getPrescriptions = (currentUser: User, setter: React.Dispatch<React.SetStateAction<Prescription[]>>) => {
+    const constraints = currentUser.role === 'patient' ? [where('patientId', '==', currentUser.id), orderBy('dateIssued', 'desc')] : [orderBy('dateIssued', 'desc')];
+    return createListener('prescriptions', setter, hydratePrescription, ...constraints);
+};
+export const getForumPosts = (setter: React.Dispatch<React.SetStateAction<ForumPost[]>>) => createListener('forumPosts', setter, hydrateForumPost, orderBy('timestamp', 'desc'));
+export const getResidentRecords = (currentUser: User, setter: React.Dispatch<React.SetStateAction<ResidentRecord[]>>) => {
+    const constraints = currentUser.role === 'bhw' && currentUser.assignedBarangay ? [where('address.barangay', '==', currentUser.assignedBarangay), orderBy('name')] : [orderBy('name')];
+    return createListener('residentRecords', setter, async r => r, ...constraints);
+};
+export const getBhwNotifications = (currentUser: User, setter: React.Dispatch<React.SetStateAction<BhwNotification[]>>) => {
+     const constraints = currentUser.role === 'bhw' && currentUser.assignedBarangay ? [where('barangay', '==', currentUser.assignedBarangay), orderBy('timestamp', 'desc')] : [orderBy('timestamp', 'desc')];
+    return createListener('bhwNotifications', setter, async n => n, ...constraints);
+};
+export const getPatientNotifications = (userId: string, setter: React.Dispatch<React.SetStateAction<PatientNotification[]>>) => createListener('patientNotifications', setter, async n => n, where('userId', '==', userId), orderBy('timestamp', 'desc'));
 
-export const getResidentRecords = async (currentUser: User, setter: React.Dispatch<React.SetStateAction<ResidentRecord[]>>) => {
-    const filtered = currentUser.role === 'bhw' && currentUser.assignedBarangay 
-        ? MOCK_DB.residentRecords.filter(r => r.address.barangay === currentUser.assignedBarangay) 
-        : MOCK_DB.residentRecords;
-    return createListener('residentRecords', setter, filtered);
-};
-export const getBhwNotifications = async (currentUser: User, setter: React.Dispatch<React.SetStateAction<BhwNotification[]>>) => {
-    const filtered = currentUser.role === 'bhw' && currentUser.assignedBarangay
-        ? MOCK_DB.bhwNotifications.filter(n => n.barangay === currentUser.assignedBarangay)
-        : MOCK_DB.bhwNotifications;
-    return createListener('bhwNotifications', setter, filtered);
-};
-export const getPatientNotifications = async (userId: string, setter: React.Dispatch<React.SetStateAction<PatientNotification[]>>) => {
-    const filtered = MOCK_DB.patientNotifications.filter(n => n.userId === userId);
-    return createListener('patientNotifications', setter, filtered);
-};
+// --- CHAT LISTENERS ---
+export const getPrivateChats = (userId: string, setter: React.Dispatch<React.SetStateAction<any>>) => {
+    const q = query(collection(db, 'privateChats'), where('members', 'array-contains', userId));
+    const allMessagesUnsubs: Function[] = [];
+    const chats: Record<string, PrivateChatMessage[]> = {};
 
-export const getBhwStats = async (currentUser: User, setter: React.Dispatch<React.SetStateAction<any>>) => createListener('bhwStats', setter, calculateBhwStats(currentUser));
+    const unsub = onSnapshot(q, (snapshot) => {
+        // Unsubscribe from old message listeners
+        allMessagesUnsubs.forEach(u => u());
+        allMessagesUnsubs.length = 0;
 
-export const getConsultations = async (currentUser: User, setter: React.Dispatch<React.SetStateAction<Consultation[]>>) => {
-    const hydrated = MOCK_DB.consultations.map(hydrateConsultation);
-    const filtered = currentUser.role === 'patient' ? hydrated.filter(c => c.patientId === currentUser.id) : hydrated;
-    return createListener('consultations', setter, filtered);
+        snapshot.docs.forEach(doc => {
+            const convoId = doc.id;
+            const messagesQuery = query(collection(db, `privateChats/${convoId}/messages`), orderBy('timestamp'));
+            const messagesUnsub = onSnapshot(messagesQuery, (msgSnapshot) => {
+                chats[convoId] = msgSnapshot.docs.map(msgDoc => {
+                    const data = msgDoc.data();
+                    return { ...docWithId(msgDoc), timestamp: data.timestamp.toDate().toLocaleString() };
+                });
+                setter({ ...chats });
+            });
+            allMessagesUnsubs.push(messagesUnsub);
+        });
+    });
+    return () => {
+        unsub();
+        allMessagesUnsubs.forEach(u => u());
+    };
 };
+export const getPatientDoctorChats = (userId: string, setter: React.Dispatch<React.SetStateAction<any>>) => {
+     const q = query(collection(db, 'patientDoctorChats'), where('members', 'array-contains', userId));
+    const allMessagesUnsubs: Function[] = [];
+    const chats: Record<string, PatientDoctorChatMessage[]> = {};
 
-export const getPrescriptions = async (currentUser: User, setter: React.Dispatch<React.SetStateAction<Prescription[]>>) => {
-    const hydrated = MOCK_DB.prescriptions.map(hydratePrescription);
-    const filtered = currentUser.role === 'patient' ? hydrated.filter(p => p.patientId === currentUser.id) : hydrated;
-    return createListener('prescriptions', setter, filtered);
-};
+    const unsub = onSnapshot(q, (snapshot) => {
+        allMessagesUnsubs.forEach(u => u());
+        allMessagesUnsubs.length = 0;
 
-export const getForumPosts = async (setter: React.Dispatch<React.SetStateAction<ForumPost[]>>) => {
-    const hydrated = MOCK_DB.forumPosts.map(hydrateForumPost);
-    return createListener('forumPosts', setter, hydrated);
+        snapshot.docs.forEach(doc => {
+            const convoId = doc.id;
+            const messagesQuery = query(collection(db, `patientDoctorChats/${convoId}/messages`), orderBy('timestamp'));
+            const messagesUnsub = onSnapshot(messagesQuery, (msgSnapshot) => {
+                chats[convoId] = msgSnapshot.docs.map(msgDoc => {
+                     const data = msgDoc.data();
+                    return { ...docWithId(msgDoc), timestamp: data.timestamp.toDate().toLocaleString() };
+                });
+                setter({ ...chats });
+            });
+            allMessagesUnsubs.push(messagesUnsub);
+        });
+    });
+    return () => {
+        unsub();
+        allMessagesUnsubs.forEach(u => u());
+    };
 };
 
 // --- WRITE OPERATIONS ---
+export const updateUserProfile = (userId: string, updatedDetails: Partial<User>) => updateDoc(doc(db, "users", userId), updatedDetails);
+export const updateUserStatus = (userId: string, status: 'active' | 'banned') => updateDoc(doc(db, "users", userId), { status });
+export const deleteUserAccount = (userId: string) => deleteDoc(doc(db, "users", userId)); // Note: This doesn't delete from Auth. Use Firebase Functions for that.
+export const addReportToUser = (userId: string, report: any) => updateDoc(doc(db, "users", userId), { reports: arrayUnion(report) });
+export const addResidentRecord = (details: Omit<ResidentRecord, 'id' | 'createdAt'>) => addDoc(collection(db, "residentRecords"), {...details, createdAt: serverTimestamp()});
+export const deleteResidentRecord = (recordId: string) => deleteDoc(doc(db, "residentRecords", recordId));
+export const updateResidentRecord = (recordId: string, details: any) => updateDoc(doc(db, "residentRecords", recordId), details);
 
-/**
- * Selects an available doctor for a new consultation based on specialty.
- * Priority: 1. Available Specialist, 2. Available GP, 3. Any Available Doctor.
- */
-const selectDoctorForConsultation = (aiSummary: AISummary): string | null => {
-    const availableDoctors = MOCK_DB.doctorProfiles.filter(d => d.availability === 'Available');
-    if (availableDoctors.length === 0) return null;
+export const createProfessionalUser = async (newUser: Omit<User, 'id' | 'status'>) => {
+    // This is a simplified version. In production, this should be a Firebase Function.
+    const userCredential = await createUserWithEmailAndPassword(auth, newUser.email, newUser.password!);
+    const user = userCredential.user;
+    const userProfile: Omit<User, 'id'> = {
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        address: newUser.address,
+        status: 'active'
+    };
+    await setDoc(doc(db, 'users', user.uid), userProfile);
+};
 
-    const diagnosisText = aiSummary.diagnosis_suggestion.toLowerCase();
+export const updateProfessionalProfile = async (userId: string, userUpdates: Partial<User>, profileUpdates: Partial<DoctorProfile>) => {
+    const batch = writeBatch(db);
+    const userRef = doc(db, "users", userId);
+    batch.update(userRef, userUpdates);
+
+    if (Object.keys(profileUpdates).length > 0) {
+        const profileQuery = query(collection(db, 'doctorProfiles'), where('userId', '==', userId));
+        const profileSnapshot = await getDocs(profileQuery);
+        if (!profileSnapshot.empty) {
+            const profileRef = profileSnapshot.docs[0].ref;
+            batch.update(profileRef, profileUpdates);
+        }
+    }
+    await batch.commit();
+};
+
+
+export const approveIdVerification = async (notificationId: string) => {
+    const notifDoc = await getDoc(doc(db, 'bhwNotifications', notificationId));
+    if (!notifDoc.exists()) return;
+    const { userId } = notifDoc.data();
     
-    // 1. Prioritize specialists
-    let specialist: DoctorProfile | undefined;
-    if (diagnosisText.includes('pedia') || diagnosisText.includes('child')) {
-        specialist = availableDoctors.find(d => d.specialty === 'specialty_pedia');
-    } else if (diagnosisText.includes('cardio') || diagnosisText.includes('heart')) {
-        specialist = availableDoctors.find(d => d.specialty === 'specialty_cardio');
-    }
-    if (specialist) return specialist.userId;
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', userId), { isVerifiedByBhw: true, idRejectionReason: null });
+    batch.delete(doc(db, 'bhwNotifications', notificationId));
+    
+    const patientNotification = {
+        userId: userId,
+        message: 'notification_id_verified',
+        isRead: false,
+        timestamp: serverTimestamp()
+    };
+    batch.set(doc(collection(db, 'patientNotifications')), patientNotification);
 
-    // 2. Fallback to General Physician
-    const generalPhysician = availableDoctors.find(d => d.specialty === 'specialty_gp');
-    if (generalPhysician) return generalPhysician.userId;
+    await batch.commit();
+};
+export const rejectIdVerification = async (notificationId: string, reason: string) => {
+     const notifDoc = await getDoc(doc(db, 'bhwNotifications', notificationId));
+    if (!notifDoc.exists()) return;
+    const { userId } = notifDoc.data();
+    
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', userId), { isVerifiedByBhw: false, idRejectionReason: reason });
+    batch.delete(doc(db, 'bhwNotifications', notificationId));
+    
+    const patientNotification = {
+        userId: userId,
+        message: `notification_id_rejected|${reason}`,
+        isRead: false,
+        timestamp: serverTimestamp()
+    };
+    batch.set(doc(collection(db, 'patientNotifications')), patientNotification);
 
-    // 3. Fallback to any available doctor
-    return availableDoctors[0].userId;
-};
-
-export const updateUserProfile = async (userId: string, updatedDetails: Partial<User>) => {
-    MOCK_DB.users = MOCK_DB.users.map(u => u.id === userId ? { ...u, ...updatedDetails } : u);
-    notifyAllData();
-};
-export const updateUserStatus = (userId: string, status: 'active' | 'banned') => {
-    MOCK_DB.users = MOCK_DB.users.map(u => u.id === userId ? { ...u, status } : u);
-    notifyAllData();
-};
-export const deleteUserAccount = (userId: string) => {
-    const user = findUser(userId);
-    if (user) {
-        delete MOCK_AUTH_USERS[user.email];
-        MOCK_DB.users = MOCK_DB.users.filter(u => u.id !== userId);
-        notifyAllData();
-    }
-};
-export const addUserReport = (userId: string, report: any) => {
-    MOCK_DB.users = MOCK_DB.users.map(u => u.id === userId ? { ...u, reports: [...(u.reports || []), report] } : u);
-    notifyAllData();
-};
-export const createProfessionalUser = (newUser: Omit<User, 'id' | 'status'>) => {
-    const userWithId: User = { ...newUser, id: `${newUser.role}-${Date.now()}`, status: 'active', address: { barangay: 'Poblacion', purok: '', streetAddress: '' } };
-    MOCK_DB.users.push(userWithId);
-    MOCK_AUTH_USERS[newUser.email] = { uid: userWithId.id, password: newUser.password! };
-    notifyAllData();
-};
-export const addResident = (details: Omit<ResidentRecord, 'id' | 'createdAt'>) => {
-    const newRecord: ResidentRecord = { id: `res-${Date.now()}`, createdAt: Date.now(), ...details };
-    MOCK_DB.residentRecords = [newRecord, ...MOCK_DB.residentRecords];
-    notifyAllData();
-};
-export const deleteResident = (recordId: string) => {
-    MOCK_DB.residentRecords = MOCK_DB.residentRecords.filter(r => r.id !== recordId);
-    notifyAllData();
+    await batch.commit();
 };
 
-export const updateResidentRecord = (recordId: string, details: Partial<Omit<ResidentRecord, 'id' | 'createdAt'>>) => {
-    MOCK_DB.residentRecords = MOCK_DB.residentRecords.map(r => 
-        r.id === recordId ? { ...r, ...details } as ResidentRecord : r
-    );
-    notifyAllData();
-};
-
-export const approveIdVerification = (notificationId: string) => {
-    const notification = MOCK_DB.bhwNotifications.find(n => n.id === notificationId);
-    if (notification) {
-        MOCK_DB.users = MOCK_DB.users.map(u => u.id === notification.userId ? { ...u, isVerifiedByBhw: true, idRejectionReason: null } : u);
-        const newPatientNotification: PatientNotification = {
-            id: `pnotif-${Date.now()}`,
-            userId: notification.userId,
-            message: 'notification_id_verified',
-            isRead: false,
-            timestamp: Date.now(),
-        };
-        MOCK_DB.patientNotifications.push(newPatientNotification);
-        MOCK_DB.bhwNotifications = MOCK_DB.bhwNotifications.filter(n => n.id !== notificationId);
-        notifyAllData(findUser(notification.userId));
-    }
-};
-
-export const rejectIdVerification = (notificationId: string, reason: string) => {
-    const notification = MOCK_DB.bhwNotifications.find(n => n.id === notificationId);
-    if (notification) {
-        MOCK_DB.users = MOCK_DB.users.map(u => u.id === notification.userId ? { ...u, isVerifiedByBhw: false, idRejectionReason: reason } : u);
-        const newPatientNotification: PatientNotification = {
-            id: `pnotif-${Date.now()}`,
-            userId: notification.userId,
-            message: `notification_id_rejected|${reason}`,
-            isRead: false,
-            timestamp: Date.now(),
-        };
-        MOCK_DB.patientNotifications.push(newPatientNotification);
-        MOCK_DB.bhwNotifications = MOCK_DB.bhwNotifications.filter(n => n.id !== notificationId);
-        notifyAllData(findUser(notification.userId));
-    }
-};
-
-export const markPatientNotificationAsRead = (notificationId: string) => {
-    MOCK_DB.patientNotifications = MOCK_DB.patientNotifications.map(n => n.id === notificationId ? { ...n, isRead: true } : n);
-    notify('patientNotifications', MOCK_DB.patientNotifications.filter(n => n.userId === currentFirebaseUser?.uid));
-};
+export const markPatientNotificationAsRead = (notificationId: string) => updateDoc(doc(db, 'patientNotifications', notificationId), { isRead: true });
 
 export const updateValidId = async (userId: string, file: File) => {
-    const user = findUser(userId);
-    if (!user) return;
-    
-    const validIdUrl = await uploadFile(file, 'valid-ids');
-    
-    MOCK_DB.users = MOCK_DB.users.map(u => 
-        u.id === userId 
-        ? { ...u, validIdUrl, isVerifiedByBhw: false, idRejectionReason: null } 
-        : u
-    );
+    const userDocRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) return;
+    const user = userSnap.data();
 
-    const newBhwNotification: BhwNotification = {
-        id: `notif-${Date.now()}`,
+    const validIdUrl = await uploadFile(file, `valid-ids/${userId}-${Date.now()}`);
+
+    await updateDoc(userDocRef, { validIdUrl, isVerifiedByBhw: false, idRejectionReason: null });
+
+    const newBhwNotification = {
         userId: userId,
         userName: user.name,
         validIdUrl,
-        timestamp: Date.now(),
+        timestamp: serverTimestamp(),
         barangay: user.address.barangay,
     };
-    MOCK_DB.bhwNotifications.push(newBhwNotification);
-    notifyAllData(user);
+    await addDoc(collection(db, 'bhwNotifications'), newBhwNotification);
 };
 
-export const addConsultation = (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor'>) => {
-    if (!consultation.aiSummary) return;
-
-    const doctorId = selectDoctorForConsultation(consultation.aiSummary);
-    
-    const timestamp = Date.now();
-    const newConsultationId = `consult-${timestamp}`;
-
-    const newConsultation: Omit<Consultation, 'patient' | 'doctor'> = {
-        id: newConsultationId,
-        ...consultation,
-        doctorId: doctorId,
-        status: 'Pending Doctor',
-    };
-
-    MOCK_DB.consultations = [newConsultation, ...MOCK_DB.consultations];
-    
-    // Create corresponding pending prescription transactionally
-    const newPrescription: Omit<Prescription, 'patient' | 'doctor' | 'doctorName'> = {
-        id: `rx-${timestamp}`,
-        consultationId: newConsultationId,
-        patientId: consultation.patientId,
-        doctorId: doctorId,
-        aiSummary: consultation.aiSummary,
-        dateIssued: new Date().toISOString().split('T')[0],
-        status: 'Pending',
-    };
-    MOCK_DB.prescriptions = [newPrescription, ...MOCK_DB.prescriptions];
-
-    notifyAllData();
+const getSpecialtyForConsultation = (summary: AISummary): DoctorSpecialty => {
+    const suggestion = summary.diagnosis_suggestion.toLowerCase();
+    if (suggestion.includes('skin') || suggestion.includes('rash') || suggestion.includes('acne')) return 'Dermatologist';
+    if (suggestion.includes('heart') || suggestion.includes('chest pain')) return 'Cardiologist';
+    if (suggestion.includes('child') || suggestion.includes('infant')) return 'Pediatrician';
+    if (suggestion.includes('pregnant') || suggestion.includes('women')) return 'OB-GYN';
+    return 'General Physician';
 };
 
-export const updateConsultationStatus = (consultationId: string, status: ConsultationStatus, doctorId: string) => {
-    MOCK_DB.consultations = MOCK_DB.consultations.map(c => c.id === consultationId ? { ...c, status, doctorId } : c);
-    notifyAllData();
-};
-export const addPrescription = (prescription: Omit<Prescription, 'id' | 'patient' | 'doctorName'>) => {
-    const newPrescription = { id: `rx-${Date.now()}`, ...prescription };
-    MOCK_DB.prescriptions = [newPrescription, ...MOCK_DB.prescriptions];
-    notifyAllData();
-};
-export const updatePrescription = (prescriptionId: string, details: Partial<Omit<Prescription, 'id'>>) => {
-    MOCK_DB.prescriptions = MOCK_DB.prescriptions.map(p => p.id === prescriptionId ? { ...p, ...details } as Omit<Prescription, 'patient'|'doctor'|'doctorName'> : p);
-    notifyAllData();
-};
-export const addForumPost = (post: Omit<ForumPost, 'id' | 'author'>) => {
-    const newPost = { id: `fp-${Date.now()}`, ...post };
-    MOCK_DB.forumPosts = [newPost, ...MOCK_DB.forumPosts];
-    notifyAllData();
-};
+export const addConsultation = async (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor' | 'doctorId' | 'status'> & { patientId: string }) => {
+    let assignedDoctorId: string | null = null;
+    let requiredSpecialty: DoctorSpecialty | undefined;
 
-export const sendPrivateMessage = (senderId: string, recipientId: string, content: string) => {
-    const convoId = [senderId, recipientId].sort().join('-');
-    const message: PrivateChatMessage = { id: `pm-${Date.now()}`, senderId, recipientId, content, timestamp: new Date().toLocaleString() };
-    const currentMessages = MOCK_DB.privateChats[convoId] || [];
-    MOCK_DB.privateChats = { ...MOCK_DB.privateChats, [convoId]: [...currentMessages, message] };
-    notify('privateChats', MOCK_DB.privateChats);
-};
-
-export const sendPatientDoctorMessage = (patientId: string, doctorId: string, content: string) => {
-    let patient = findUser(patientId);
-    if (!patient) return;
-
-    // Check for weekly credit reset
-    const updatedPatient = _checkAndResetWeeklyCredits(patient);
-    if (patient !== updatedPatient) {
-        patient = updatedPatient;
-        MOCK_DB.users = MOCK_DB.users.map(u => u.id === patientId ? patient : u);
-    }
-    
-    const now = Date.now();
-    const activePass = patient.chatAccessPasses?.[doctorId] && patient.chatAccessPasses[doctorId] > now;
-
-    let canSendMessage = false;
-    let userWasUpdated = false;
-
-    if (patient.isPremium || activePass) {
-        canSendMessage = true;
-    } else if ((patient.weeklyChatCredits || 0) > 0) {
-        canSendMessage = true;
-        // Consume credit and create pass
-        const oneDay = 24 * 60 * 60 * 1000;
-        const newPasses = { ...(patient.chatAccessPasses || {}), [doctorId]: now + oneDay };
-        const userWithConsumedCredit = { ...patient, weeklyChatCredits: 0, chatAccessPasses: newPasses };
-        MOCK_DB.users = MOCK_DB.users.map(u => u.id === patientId ? userWithConsumedCredit : u);
-        userWasUpdated = true;
-    }
-
-    if (canSendMessage) {
-        const convoId = [patientId, doctorId].sort().join('-');
-        const message: PatientDoctorChatMessage = { id: `pdcm-${Date.now()}`, sender: 'patient', content, timestamp: new Date().toLocaleString(), readByDoctor: false, readByPatient: true };
-        const currentMessages = MOCK_DB.patientDoctorChats[convoId] || [];
-        MOCK_DB.patientDoctorChats = { ...MOCK_DB.patientDoctorChats, [convoId]: [...currentMessages, message] };
-        notify('patientDoctorChats', MOCK_DB.patientDoctorChats);
+    if (consultation.aiSummary) {
+        requiredSpecialty = getSpecialtyForConsultation(consultation.aiSummary);
         
-        if (userWasUpdated) {
-            notifyAllData(); // Notify all data if user object changed
+        const doctorsQuery = query(
+            collection(db, 'doctorProfiles'),
+            where('specialty', '==', requiredSpecialty),
+            where('availability', '==', 'Available')
+        );
+        const doctorSnaps = await getDocs(doctorsQuery);
+        const availableDoctors = doctorSnaps.docs.map(d => docWithId(d) as DoctorProfile);
+
+        if (availableDoctors.length > 0) {
+            const countersRef = doc(db, 'systemCounters', 'specialtyAssignments');
+            await runTransaction(db, async (transaction) => {
+                const countersDoc = await transaction.get(countersRef);
+                const currentCount = countersDoc.exists() ? countersDoc.data()[requiredSpecialty!] || 0 : 0;
+                
+                const doctorIndex = currentCount % availableDoctors.length;
+                assignedDoctorId = availableDoctors[doctorIndex].userId;
+
+                // Update counter
+                if (countersDoc.exists()) {
+                    transaction.update(countersRef, { [requiredSpecialty!]: increment(1) });
+                } else {
+                    transaction.set(countersRef, { [requiredSpecialty!]: 1 });
+                }
+            });
         }
     }
+
+    return runTransaction(db, async (transaction) => {
+        const patientRef = doc(db, 'users', consultation.patientId);
+        const patientSnap = await transaction.get(patientRef);
+        if (!patientSnap.exists()) throw new Error("Patient not found.");
+        
+        const patientData = patientSnap.data() as User;
+        if (!patientData.isPremium && patientData.hasUsedFreeConsultation) {
+            throw new Error("You have used your free consultation. Please subscribe to a premium plan to send more.");
+        }
+
+        if (!patientData.isPremium) {
+            transaction.update(patientRef, { hasUsedFreeConsultation: true });
+        }
+        
+        const newConsultation = {
+            ...consultation,
+            date: Timestamp.now(),
+            status: 'Pending Doctor',
+            doctorId: assignedDoctorId,
+            requiredSpecialty,
+        };
+        const consultationRef = doc(collection(db, 'consultations'));
+        transaction.set(consultationRef, newConsultation);
+
+        const newPrescription = {
+            consultationId: consultationRef.id,
+            patientId: consultation.patientId,
+            doctorId: assignedDoctorId,
+            aiSummary: consultation.aiSummary,
+            dateIssued: Timestamp.now(),
+            status: 'Pending',
+        };
+        transaction.set(doc(collection(db, 'prescriptions')), newPrescription);
+    });
 };
 
+export const updateConsultationStatus = (consultationId: string, status: ConsultationStatus, doctorId: string) => updateDoc(doc(db, 'consultations', consultationId), { status, doctorId });
+export const addPrescription = (prescription: any) => addDoc(collection(db, 'prescriptions'), {...prescription, dateIssued: serverTimestamp()});
+export const updatePrescription = (prescriptionId: string, details: any) => updateDoc(doc(db, 'prescriptions', prescriptionId), details);
+export const addForumPost = (post: any) => addDoc(collection(db, 'forumPosts'), {...post, timestamp: serverTimestamp()});
 
-export const sendDoctorPatientMessage = (doctorId: string, patientId: string, content: string) => {
+export const sendPrivateMessage = async (senderId: string, recipientId: string, content: string) => {
+    const convoId = [senderId, recipientId].sort().join('-');
+    const convoRef = doc(db, 'privateChats', convoId);
+    await setDoc(convoRef, { members: [senderId, recipientId] }, { merge: true });
+    await addDoc(collection(convoRef, 'messages'), { senderId, recipientId, content, timestamp: serverTimestamp() });
+};
+export const sendPatientDoctorMessage = async (patientId: string, doctorId: string, content: string) => {
     const convoId = [patientId, doctorId].sort().join('-');
-    const message: PatientDoctorChatMessage = { id: `pdcm-${Date.now()}`, sender: 'doctor', content, timestamp: new Date().toLocaleString(), readByDoctor: true, readByPatient: false };
-    const currentMessages = MOCK_DB.patientDoctorChats[convoId] || [];
-    MOCK_DB.patientDoctorChats = { ...MOCK_DB.patientDoctorChats, [convoId]: [...currentMessages, message] };
-    notify('patientDoctorChats', MOCK_DB.patientDoctorChats);
+    const convoRef = doc(db, 'patientDoctorChats', convoId);
+    await setDoc(convoRef, { members: [patientId, doctorId] }, { merge: true });
+    await addDoc(collection(convoRef, 'messages'), { sender: 'patient', content, timestamp: serverTimestamp(), readByDoctor: false, readByPatient: true });
+};
+export const sendDoctorPatientMessage = async (doctorId: string, patientId: string, content: string) => {
+    const convoId = [patientId, doctorId].sort().join('-');
+    const convoRef = doc(db, 'patientDoctorChats', convoId);
+    await setDoc(convoRef, { members: [patientId, doctorId] }, { merge: true });
+    await addDoc(collection(convoRef, 'messages'), { sender: 'doctor', content, timestamp: serverTimestamp(), readByDoctor: true, readByPatient: false });
 };
 
-export const markDoctorChatAsRead = (convoId: string) => {
-    if (MOCK_DB.patientDoctorChats[convoId]) {
-        MOCK_DB.patientDoctorChats[convoId] = MOCK_DB.patientDoctorChats[convoId].map(msg => ({ ...msg, readByDoctor: true }));
-        notify('patientDoctorChats', { ...MOCK_DB.patientDoctorChats });
-    }
+export const markDoctorChatAsRead = async (convoId: string) => {
+    const messagesRef = collection(db, `patientDoctorChats/${convoId}/messages`);
+    const q = query(messagesRef, where('readByDoctor', '==', false));
+    const unreadSnapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    unreadSnapshot.docs.forEach(d => batch.update(d.ref, { readByDoctor: true }));
+    await batch.commit();
 };
 
-export const updateDoctorAvailability = (docProfileId: string, availability: any) => {
-    MOCK_DB.doctorProfiles = MOCK_DB.doctorProfiles.map(d => d.id === docProfileId ? { ...d, availability } : d);
-    notifyAllData();
-};
+export const updateDoctorAvailability = (docProfileId: string, availability: any) => updateDoc(doc(db, 'doctorProfiles', docProfileId), { availability });
 export const upgradeUserSubscription = (userId: string, plan: 'individual' | 'family') => {
-    MOCK_DB.users = MOCK_DB.users.map(u => u.id === userId ? { ...u, isPremium: true, subscriptionType: plan, familyId: plan === 'family' ? `fam-${userId}`: null, weeklyChatCredits: undefined, lastCreditReset: undefined, chatAccessPasses: undefined } : u);
-    notifyAllData();
+     const updateData: any = {
+        isPremium: true,
+        subscriptionType: plan,
+        hasUsedFreeConsultation: undefined,
+     };
+     if (plan === 'family') {
+        updateData.familyId = `fam-${userId}`;
+     }
+    return updateDoc(doc(db, 'users', userId), updateData);
+};
+export const grantPremiumSubscription = (userId: string) => updateDoc(doc(db, "users", userId), { isPremium: true, subscriptionType: 'individual' });
+
+export const validateAndRemitPrescription = (prescriptionId: string): Promise<{ success: boolean; message: string; }> => {
+    const presRef = doc(db, 'prescriptions', prescriptionId);
+    return runTransaction(db, async (transaction) => {
+        const presDoc = await transaction.get(presRef);
+        if (!presDoc.exists()) {
+            throw new Error("Prescription not found.");
+        }
+        const prescription = presDoc.data();
+        if (prescription.status === 'Remitted') {
+            throw new Error("This prescription has already been remitted.");
+        }
+        if (prescription.status !== 'Approved') {
+            throw new Error(`This prescription is not approved for remittance. Its status is: ${prescription.status}.`);
+        }
+        transaction.update(presRef, { status: 'Remitted' });
+        return { success: true, message: "Prescription validated and marked as remitted." };
+    }).catch(error => {
+        return { success: false, message: error.message };
+    });
+};
+
+// --- ANALYTICS (MOCK DATA) ---
+// In a real app, these would be calculated using Firebase Functions or another backend service.
+export const getRhuStats = (setter: React.Dispatch<React.SetStateAction<any>>) => {
+    const mockStats: RhwStats = {
+        weeklyConsultations: [{ name: 'Mon', uv: 12 }, { name: 'Tue', uv: 19 }, { name: 'Wed', uv: 10 }, { name: 'Thu', uv: 25 }, { name: 'Fri', uv: 20 }, { name: 'Sat', uv: 11 }, { name: 'Sun', uv: 6 }],
+        urgencyBreakdown: [{ name: 'Low', count: 55 }, { name: 'Medium', count: 32 }, { name: 'High', count: 12 }, { name: 'Critical', count: 4 }],
+        topPrescribed: [{ name: 'Paracetamol', count: 45 }, { name: 'Amoxicillin', count: 28 }, { name: 'Salbutamol', count: 19 }, { name: 'Loratadine', count: 15 }, { name: 'Mefenamic Acid', count: 11 }]
+    };
+    setter(mockStats);
+    return () => {}; // Return a dummy unsubscribe function
+};
+export const getBhwStats = (currentUser: User, setter: React.Dispatch<React.SetStateAction<any>>) => {
+     const mockStats: BhwStats = {
+        weeklyRecordsAdded: [{ name: 'Mon', uv: 5 }, { name: 'Tue', uv: 8 }, { name: 'Wed', uv: 12 }, { name: 'Thu', uv: 7 }, { name: 'Fri', uv: 15 }, { name: 'Sat', uv: 4 }, { name: 'Sun', uv: 2 }],
+        residentDistribution: [{ name: 'Poblacion', count: 150 }, { name: 'Laguinbanua', count: 80 }, { name: 'Naisud', count: 120 }]
+    };
+    setter(mockStats);
+    return () => {};
+};
+export const getPharmacyStats = (setter: React.Dispatch<React.SetStateAction<any>>) => {
+    const mockStats: PharmacyStats = {
+        weeklyValidations: [{ name: 'Mon', uv: 22 }, { name: 'Tue', uv: 28 }, { name: 'Wed', uv: 20 }, { name: 'Thu', uv: 35 }, { name: 'Fri', uv: 30 }, { name: 'Sat', uv: 42 }, { name: 'Sun', uv: 18 }],
+        topMeds: [{ name: 'Paracetamol', count: 60 }, { name: 'Amoxicillin', count: 40 }, { name: 'Salbutamol', count: 25 }, { name: 'Loratadine', count: 22 }, { name: 'Mefenamic Acid', count: 18 }]
+    };
+    setter(mockStats);
+    return () => {};
 };

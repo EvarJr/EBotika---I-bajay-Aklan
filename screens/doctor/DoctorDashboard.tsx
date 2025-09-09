@@ -1,3 +1,5 @@
+
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppContext } from '../../hooks/useAppContext';
 import { Screens } from '../../constants';
@@ -148,6 +150,11 @@ const DoctorDashboard: React.FC = () => {
                                 </div>
                             )}
                         </button>
+                        {pendingConsultations.length > 0 && (
+                             <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center border-2 border-white">
+                                {pendingConsultations.length}
+                            </span>
+                        )}
                         {isDropdownOpen && (
                             <div className="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-20 border border-gray-100">
                                 <button

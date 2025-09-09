@@ -24,34 +24,34 @@ Please consult a doctor if:
 - You experience difficulty breathing.`
 };
 
-// Mock implementation - Aklanon
-const mockResponsesAk: string[] = [
-    "Okay, naintindihan ko. Pwede mo pa bang isaysay ang mga sintomas? Halimbawa, san-o raya nagsimula?",
-    "Salamat sa impormasyon. May iba ka pa bang nabatyagan, parehas it lagnat o pagsakit it kalawasan?",
-    "Naintindihan ko. Isaeang pang pamangkot, sa iskaeang 1 hasta 10, paano mo i-rate ro kahasakit?",
+// Mock implementation - Tagalog
+const mockResponsesTg: string[] = [
+    "Okay, naiintindihan ko. Maaari mo bang sabihin ang iba pang detalye tungkol sa mga sintomas? Halimbawa, kailan ito nagsimula?",
+    "Salamat sa impormasyon. Mayroon ka pa bang ibang nararamdaman, tulad ng lagnat o pananakit ng katawan?",
+    "Naiintindihan ko. Huling tanong, sa sukat na 1 hanggang 10, gaano mo kalala ang nararamdamang sakit?",
 ];
 
-const mockSummaryAk: AISummary = {
-  diagnosis_suggestion: "Posibleng Trangkaso o Sip-on",
+const mockSummaryTg: AISummary = {
+  diagnosis_suggestion: "Posibleng Karaniwang Sipon o Trangkaso",
   urgency_level: "Low",
-  recommendation: `Base sa imong mga sintomas, yari ro pilang rekomendasyon:
+  recommendation: `Base sa iyong mga sintomas, narito ang ilang rekomendasyon:
 
-• Magpahuway ag siguraduhon nga may bastante nga inom it tubi.
-• Pwede kang mag-inom it mga bulong nga mabakae sa botika parehas it Paracetamol para sa lagnat o sakit it kalawasan, suno sa direksyon.
-• Bantayan it mayad ro imong mga sintomas.
+• Magpahinga at uminom ng maraming tubig.
+• Maaari kang uminom ng over-the-counter na gamot tulad ng Paracetamol para sa lagnat o pananakit, ayon sa direksyon.
+• Subaybayan nang mabuti ang iyong mga sintomas.
 
-Palihog magpakonsulta sa doktor kung:
-- Maglala ro imong mga sintomas pagkatapos it 3 adlaw.
-- Magka-high fever ka (sobra sa 38.5°C o 101.3°F).
-- Mabudlayan ka sa pagginhawa.`
+Mangyaring kumonsulta sa doktor kung:
+- Lumala ang iyong mga sintomas pagkatapos ng 3 araw.
+- Magkaroon ka ng mataas na lagnat (higit sa 38.5°C o 101.3°F).
+- Mahirapan kang huminga.`
 };
 
 export const streamChatResponse = async function* (history: ChatMessage[], language: Language) {
     await new Promise(res => setTimeout(res, 1000));
     
-    const isAklanon = language === 'Aklanon';
-    const mockResponses = isAklanon ? mockResponsesAk : mockResponsesEn;
-    const mockSummary = isAklanon ? mockSummaryAk : mockSummaryEn;
+    const isTagalog = language === 'Tagalog';
+    const mockResponses = isTagalog ? mockResponsesTg : mockResponsesEn;
+    const mockSummary = isTagalog ? mockSummaryTg : mockSummaryEn;
     
     const turn = history.filter(m => m.sender === 'ai').length;
 
@@ -89,7 +89,7 @@ export const getAiChat = () => {
 First act like a doctor by asking clarifying questions.
 After 2-3 exchanges, provide a final structured JSON summary.
 Requirements:
-1. Respond fully in Aklanon or English (based on user setting).
+1. Respond fully in Tagalog or English (based on user setting).
 2. During chat: ask doctor-style follow-up questions.
 3. Final output: only JSON in this format:
    {

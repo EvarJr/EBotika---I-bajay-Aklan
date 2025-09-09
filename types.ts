@@ -1,8 +1,8 @@
-import { Screens } from './constants';
+import { Screens, DOCTOR_SPECIALIZATIONS } from './constants';
 
 export type Role = 'patient' | 'guest' | 'doctor' | 'pharmacy' | 'admin' | 'unauthenticated' | 'bhw';
 
-export type Language = 'English' | 'Aklanon';
+export type Language = 'English' | 'Tagalog';
 
 export interface StructuredAddress {
   barangay: string;
@@ -26,9 +26,11 @@ export interface User {
   isPremium?: boolean;
   subscriptionType?: 'individual' | 'family';
   familyId?: string | null;
-  weeklyChatCredits?: number;
-  chatAccessPasses?: { [doctorId: string]: number }; // Pass expires at this timestamp
-  lastCreditReset?: number; // Timestamp when credits were last reset
+  // New subscription model fields
+  hasUsedFreeConsultation?: boolean; // For standard users
+  monthlyDirectChatCredits?: number; // For 'individual' plan
+  chatAccessPasses?: { [doctorId: string]: number }; // Pass expires at this timestamp (8 hours)
+  lastCreditReset?: number; // Timestamp when monthly credits were last reset
   isVerifiedByBhw?: boolean;
   idRejectionReason?: string | null;
   assignedBarangay?: string;
@@ -79,11 +81,6 @@ export interface PatientDoctorChatMessage {
     readByDoctor: boolean;
 }
 
-export interface PharmacyStats {
-  weeklyValidations: { name: string, uv: number }[];
-  topMeds: { name: string, count: number }[];
-}
-
 export interface RhwStats {
     weeklyConsultations: { name: string; uv: number }[];
     urgencyBreakdown: { name: string; count: number }[];
@@ -93,6 +90,11 @@ export interface RhwStats {
 export interface BhwStats {
     weeklyRecordsAdded: { name: string; uv: number }[];
     residentDistribution: { name: string; count: number }[];
+}
+
+export interface PharmacyStats {
+    weeklyValidations: { name: string; uv: number }[];
+    topMeds: { name: string; count: number }[];
 }
 
 export interface IAppContext {
@@ -117,6 +119,7 @@ export interface IAppContext {
   updateGuestDetails: (details: { name: string, contactNumber: string, address: StructuredAddress, validIdFile: File }) => User;
   updateUserProfile: (updatedUser: Partial<User>) => void;
   addProfessionalUser: (user: Omit<User, 'id' | 'status'>) => void;
+  updateProfessionalProfile: (userId: string, userUpdates: Partial<User>, profileUpdates: Partial<DoctorProfile>) => Promise<void>;
   addResidentRecord: (details: Omit<ResidentRecord, 'id' | 'createdAt'>) => void;
   deleteResidentRecord: (recordId: string) => void;
   updateResidentRecord: (recordId: string, details: Partial<Omit<ResidentRecord, 'id' | 'createdAt'>>) => void;
@@ -127,7 +130,7 @@ export interface IAppContext {
   activeConsultation: Consultation | null;
   setActiveConsultation: (consultation: Consultation | null) => void;
   consultations: Consultation[];
-  addConsultation: (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor'>) => void;
+  addConsultation: (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor' | 'patientId' | 'status'>) => Promise<void>;
   updateConsultationStatus: (consultationId: string, status: ConsultationStatus, doctorId: string) => void;
   activePrescription: Prescription | null;
   setActivePrescription: (prescription: Prescription | null) => void;
@@ -152,15 +155,19 @@ export interface IAppContext {
   doctorProfiles: DoctorProfile[];
   updateDoctorAvailability: (doctorId: string, availability: 'Available' | 'On Leave') => void;
   upgradeUserSubscription: (userId: string, plan: 'individual' | 'family') => void;
-  pharmacyStats: PharmacyStats | null;
+  grantPremiumSubscription: (userId: string) => void;
   rhuStats: RhwStats | null;
   bhwStats: BhwStats | null;
+  pharmacyStats: PharmacyStats | null;
   bhwNotifications: BhwNotification[];
   approveIdVerification: (notificationId: string) => void;
   rejectIdVerification: (notificationId: string, reason: string) => void;
   patientNotifications: PatientNotification[];
   markPatientNotificationAsRead: (notificationId: string) => void;
   updateValidId: (file: File) => Promise<void>;
+  pendingConsultationForGuest: { messages: ChatMessage[], summary: AISummary } | null;
+  setPendingConsultationForGuest: (data: { messages: ChatMessage[], summary: AISummary } | null) => void;
+  validateAndRemitPrescription: (prescriptionId: string) => Promise<{ success: boolean; message: string; }>;
 }
 
 export interface ChatMessage {
@@ -176,11 +183,13 @@ export interface AISummary {
     recommendation: string;
 }
 
+export type DoctorSpecialty = typeof DOCTOR_SPECIALIZATIONS[number];
+
 export interface DoctorProfile {
     id: string;
     userId: string;
     name: string;
-    specialty: string;
+    specialty: DoctorSpecialty;
     avatarUrl: string;
     availability: 'Available' | 'On Leave';
 }
@@ -199,6 +208,7 @@ export interface Consultation {
     doctorNotes?: string;
     status: ConsultationStatus;
     chatHistory?: ChatMessage[];
+    requiredSpecialty?: DoctorSpecialty;
 }
 
 export type PrescriptionStatus = 'Pending' | 'Approved' | 'Remitted' | 'Denied';
