@@ -2,7 +2,7 @@ import { Screens, DOCTOR_SPECIALIZATIONS } from './constants';
 
 export type Role = 'patient' | 'guest' | 'doctor' | 'pharmacy' | 'admin' | 'unauthenticated' | 'bhw';
 
-export type Language = 'English' | 'Tagalog';
+export type Language = 'English' | 'Filipino';
 
 export interface StructuredAddress {
   barangay: string;

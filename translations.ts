@@ -1,4 +1,5 @@
 
+
 type Translations = {
   [key: string]: {
     [key: string]: string;
@@ -8,11 +9,14 @@ type Translations = {
 export const translations: Translations = {
   en: {
     // Welcome Screen
-    welcome_tagline: 'Your Community Health Partner',
+    welcome_main_title: 'EBotika+',
+    welcome_main_subtitle: 'Get AI-powered symptom checks and connect with local health professionals.',
     welcome_guest_button: 'Continue as Guest',
     welcome_login_button: 'Login',
-    welcome_register_button: 'Register',
+    welcome_create_account_button: 'Create an Account',
+    welcome_login_prompt: 'Already have an account?',
     welcome_scan_qr_button: 'Scan Prescription QR',
+    scan_qr_label: 'Scan Prescription QR',
     welcome_language_label: 'Language',
     
     // Login Screen
@@ -372,13 +376,16 @@ export const translations: Translations = {
     guest_exit_confirm_button: "Exit Anyway",
     guest_exit_save_button: "Save & Register",
   },
-  tg: {
+  fil: {
     // Welcome Screen
-    welcome_tagline: 'Ang Iyong Kasama sa Kalusugan ng Komunidad',
+    welcome_main_title: 'EBotika+',
+    welcome_main_subtitle: 'Kumuha ng AI-powered symptom checks at kumonekta sa mga lokal na propesyonal sa kalusugan.',
     welcome_guest_button: 'Magpatuloy bilang Bisita',
     welcome_login_button: 'Mag-login',
-    welcome_register_button: 'Magrehistro',
+    welcome_create_account_button: 'Gumawa ng Account',
+    welcome_login_prompt: 'May account ka na?',
     welcome_scan_qr_button: 'I-scan ang Reseta na QR',
+    scan_qr_label: 'I-scan ang Reseta na QR',
     welcome_language_label: 'Wika',
 
     // Login Screen

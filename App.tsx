@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppContext } from './contexts/AppContext.ts';
 import type { Role, User, Screen, Language, Consultation, ForumPost, PrivateChatMessage, Prescription, DoctorProfile, PatientDoctorChatMessage, ConsultationStatus, ResidentRecord, Medicine, RhwStats, BhwStats, StructuredAddress, BhwNotification, PatientNotification, PharmacyStats, ChatMessage, AISummary } from './types';
@@ -33,7 +30,8 @@ import PatientConsultationDetailScreen from './screens/patient/PatientConsultati
 import ProfessionalProfileEditScreen from './screens/shared/ProfessionalProfileEditScreen';
 import PatientDetailScreen from './screens/rhu/PatientDetailScreen';
 import { useTranslation } from './hooks/useTranslation';
-import * as firebaseService from './services/firebaseService';
+import * as db from './services/localDB';
+import { resetChatSession } from './services/geminiService';
 
 
 const GuestExitModal = ({ isOpen, onConfirm, onClose, onSaveAndRegister }: { isOpen: boolean; onConfirm: () => void; onClose: () => void; onSaveAndRegister: () => void; }) => {
@@ -111,7 +109,7 @@ export default function App() {
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isGuestUpgrading, setIsGuestUpgrading] = useState(false);
   const [residentRecords, setResidentRecords] = useState<ResidentRecord[]>([]);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false); // No longer needed for auth, but good for initial load
   const [rhuStats, setRhuStats] = useState<RhwStats | null>(null);
   const [bhwStats, setBhwStats] = useState<BhwStats | null>(null);
   const [pharmacyStats, setPharmacyStats] = useState<PharmacyStats | null>(null);
@@ -119,8 +117,13 @@ export default function App() {
   const [patientNotifications, setPatientNotifications] = useState<PatientNotification[]>([]);
   const [pendingConsultationForGuest, setPendingConsultationForGuest] = useState<{ messages: ChatMessage[], summary: AISummary } | null>(null);
 
+  // --- DATA SEEDING ---
+  useEffect(() => {
+    db.seedInitialData();
+  }, []);
+
   const t = useCallback((key: string, params: { [key: string]: string | number } = {}) => {
-    const langKey = language === 'Tagalog' ? 'tg' : 'en';
+    const langKey = language === 'Filipino' ? 'fil' : 'en';
     let str = translations[langKey][key] || key;
     
     Object.keys(params).forEach(pKey => {
@@ -138,107 +141,28 @@ export default function App() {
     setScreen(newScreen);
   }, []);
 
-
-  // --- DATA FETCHING & REALTIME LISTENERS ---
-  useEffect(() => {
-    // Auth Listener
-    const unsubscribe = firebaseService.onAuthChange(async (firebaseUser) => {
-        if (firebaseUser) {
-            const userProfile = await firebaseService.getUserProfile(firebaseUser.uid);
-            if (userProfile) {
-                let justCreatedPendingConsultation = false;
-
-                // If a guest just registered and has a pending consultation, create it now.
-                if (pendingConsultationForGuest && userProfile.role === 'patient') {
-                    // Use a copy to avoid issues with state updates
-                    const consultationData = { ...pendingConsultationForGuest };
-                    
-                    // Clear the pending consultation state immediately
-                    setPendingConsultationForGuest(null);
-                    localStorage.removeItem(CHAT_HISTORY_KEY);
-
-                    try {
-                        // Directly call the service function. This will also handle the free credit.
-                        await firebaseService.addConsultation({
-                            patientId: userProfile.id,
-                            date: new Date().toISOString().split('T')[0],
-                            symptoms: consultationData.messages.filter(m => m.sender === 'user').map(m => m.text),
-                            aiSummary: consultationData.summary,
-                            chatHistory: consultationData.messages,
-                        });
-                        alert(t('pending_prescription_alert'));
-                        justCreatedPendingConsultation = true;
-                    } catch (error: any) {
-                        alert(error.message); // e.g., if credit check fails for some reason
-                    }
-                }
-
-                setUser(userProfile);
-                setRole(userProfile.role);
-                // Navigate based on role
-                switch (userProfile.role) {
-                    case 'patient': 
-                        if (justCreatedPendingConsultation) {
-                            setScreen(Screens.PRESCRIPTIONS);
-                            setActivePatientScreen(Screens.PRESCRIPTIONS);
-                        } else {
-                            setScreen(Screens.PATIENT_HOME);
-                        }
-                        break;
-                    case 'doctor': setScreen(Screens.DOCTOR_DASHBOARD); break;
-                    case 'pharmacy': setScreen(Screens.PHARMACY_DASHBOARD); break;
-                    case 'admin': setScreen(Screens.RHU_DASHBOARD); break;
-                    case 'bhw': setScreen(Screens.BHW_DASHBOARD); break;
-                    default: setScreen(Screens.WELCOME);
-                }
-            } else {
-                // This case can happen if a user is created in Auth but their Firestore doc isn't ready.
-                // For now, we log them out.
-                await firebaseService.signOut();
-            }
-        } else {
-            setUser(null);
-            setRole('unauthenticated');
-            setScreen(Screens.WELCOME);
-        }
-        setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, [pendingConsultationForGuest, t]);
-  
-  // Fetch data when user logs in
-  useEffect(() => {
-    if (user) {
-        const unsubs: (()=>void)[] = [];
-        // Base Data
-        unsubs.push(firebaseService.getUsers(setUsers));
-        unsubs.push(firebaseService.getConsultations(user, setConsultations));
-        unsubs.push(firebaseService.getPrescriptions(user, setPrescriptions));
-        unsubs.push(firebaseService.getForumPosts(setForumPosts));
-        unsubs.push(firebaseService.getDoctorProfiles(setDoctorProfiles));
-        unsubs.push(firebaseService.getMedicines(setMedicines));
-        
-        // Role-specific data
-        unsubs.push(firebaseService.getResidentRecords(user, setResidentRecords));
-        if (user.role === 'bhw') {
-            unsubs.push(firebaseService.getBhwNotifications(user, setBhwNotifications));
-        }
-        if (user.role === 'patient') {
-            unsubs.push(firebaseService.getPatientNotifications(user.id, setPatientNotifications));
-        }
-
-        // Analytics
-        unsubs.push(firebaseService.getRhuStats(setRhuStats));
-        unsubs.push(firebaseService.getBhwStats(user, setBhwStats));
-        unsubs.push(firebaseService.getPharmacyStats(setPharmacyStats));
-        
-        // Real-time chats
-        unsubs.push(firebaseService.getPrivateChats(user.id, setPrivateChats));
-        unsubs.push(firebaseService.getPatientDoctorChats(user.id, setPatientDoctorChats));
-
-        return () => unsubs.forEach(unsub => unsub());
-    }
+  // --- DATA FETCHING (LOCAL) ---
+  const fetchData = useCallback(async () => {
+      if (!user) return;
+      setUsers(await db.getUsers());
+      setConsultations(await db.getConsultations(user));
+      setPrescriptions(await db.getPrescriptions(user));
+      setForumPosts(await db.getForumPosts());
+      setDoctorProfiles(await db.getDoctorProfiles());
+      setMedicines(await db.getMedicines());
+      setResidentRecords(await db.getResidentRecords(user));
+      setBhwNotifications(await db.getBhwNotifications(user));
+      setPatientNotifications(await db.getPatientNotifications(user.id));
+      setPrivateChats(await db.getPrivateChats(user.id));
+      setPatientDoctorChats(await db.getPatientDoctorChats(user.id));
+      setRhuStats(await db.getRhuStats());
+      setBhwStats(await db.getBhwStats(user));
+      setPharmacyStats(await db.getPharmacyStats());
   }, [user]);
+
+  useEffect(() => {
+    fetchData();
+  }, [user, fetchData]);
 
   // Keep the current user object in sync with the master user list
   useEffect(() => {
@@ -249,18 +173,62 @@ export default function App() {
         }
     }
   }, [users, user]);
+  
+  const handleUserLogin = useCallback((loggedInUser: User) => {
+        let justCreatedPendingConsultation = false;
 
+        // If a guest just registered and has a pending consultation, create it now.
+        if (pendingConsultationForGuest && loggedInUser.role === 'patient') {
+            const consultationData = { ...pendingConsultationForGuest };
+            setPendingConsultationForGuest(null);
+            localStorage.removeItem(CHAT_HISTORY_KEY);
+
+            try {
+                db.addConsultation({
+                    patientId: loggedInUser.id,
+                    date: new Date().toISOString().split('T')[0],
+                    symptoms: consultationData.messages.filter(m => m.sender === 'user').map(m => m.text),
+                    aiSummary: consultationData.summary,
+                    chatHistory: consultationData.messages,
+                });
+                alert(t('pending_prescription_alert'));
+                justCreatedPendingConsultation = true;
+            } catch (error: any) {
+                alert(error.message);
+            }
+        }
+        
+        setUser(loggedInUser);
+        setRole(loggedInUser.role);
+        // Navigate based on role
+        switch (loggedInUser.role) {
+            case 'patient': 
+                if (justCreatedPendingConsultation) {
+                    setScreen(Screens.PRESCRIPTIONS);
+                    setActivePatientScreen(Screens.PRESCRIPTIONS);
+                } else {
+                    setScreen(Screens.PATIENT_HOME);
+                }
+                break;
+            case 'doctor': setScreen(Screens.DOCTOR_DASHBOARD); break;
+            case 'pharmacy': setScreen(Screens.PHARMACY_DASHBOARD); break;
+            case 'admin': setScreen(Screens.RHU_DASHBOARD); break;
+            case 'bhw': setScreen(Screens.BHW_DASHBOARD); break;
+            default: setScreen(Screens.WELCOME);
+        }
+    }, [pendingConsultationForGuest, t]);
 
   // --- AUTH ACTIONS ---
   const login = useCallback(async (email: string, password: string) => {
-      await firebaseService.signIn(email, password);
-      // onAuthChange listener will handle the rest
-  }, []);
+      const loggedInUser = await db.signIn(email, password);
+      handleUserLogin(loggedInUser);
+  }, [handleUserLogin]);
 
   const register = useCallback(async (details: { name: string, email: string, password: string, contactNumber: string, address: StructuredAddress, validIdFile: File }) => {
-      await firebaseService.signUp(details);
-      // onAuthChange listener will handle the rest
-  }, []);
+      const newUser = await db.signUp(details);
+      // Immediately log in the new user
+      handleUserLogin(newUser);
+  }, [handleUserLogin]);
 
   const loginAsGuest = useCallback(() => {
     setRole('guest');
@@ -277,8 +245,11 @@ export default function App() {
   }, []);
 
   const handleConfirmLogout = useCallback(async () => {
-    await firebaseService.signOut();
+    await db.signOut();
     // Clear all local state
+    setUser(null);
+    setRole('unauthenticated');
+    setScreen(Screens.WELCOME);
     setActiveConsultation(null);
     setActivePrescription(null);
     setActivePrivateChatRecipient(null);
@@ -313,18 +284,15 @@ export default function App() {
       navigateTo(Screens.REGISTER);
   }, [navigateTo]);
 
-  // --- NAVIGATION ---
-
 
   const startSymptomCheck = useCallback((initialSymptom: string) => {
       localStorage.removeItem(CHAT_HISTORY_KEY);
+      resetChatSession();
       setSymptom(initialSymptom);
       navigateTo(Screens.SYMPTOM_CHECK);
   }, [navigateTo]);
   
-  // --- DATA MUTATIONS (delegated to firebaseService) ---
   const updateGuestDetails = useCallback((details: { name: string; contactNumber: string; address: StructuredAddress; validIdFile: File }): User => {
-    // This function's purpose changes. It's now just for updating local state before registration.
     const guestUser: User = {
       id: user?.id || `guest-${Date.now()}`,
       name: details.name,
@@ -340,296 +308,230 @@ export default function App() {
     return guestUser;
   }, [user]);
   
-  const updateUserProfile = useCallback((updatedDetails: Partial<User>) => {
+  const updateUserProfile = useCallback(async (updatedDetails: Partial<User>) => {
     if(!user) return;
-    firebaseService.updateUserProfile(user.id, updatedDetails);
-  }, [user]);
+    await db.updateUserProfile(user.id, updatedDetails);
+    fetchData(); // Refresh data
+  }, [user, fetchData]);
 
-  const updateUserStatus = useCallback((userId: string, status: 'active' | 'banned') => {
-    firebaseService.updateUserStatus(userId, status);
-  }, []);
+  const updateUserStatus = useCallback(async (userId: string, status: 'active' | 'banned') => {
+    await db.updateUserStatus(userId, status);
+    fetchData();
+  }, [fetchData]);
 
-  const deleteUser = useCallback((userId: string) => {
-    firebaseService.deleteUserAccount(userId);
-  }, []);
+  const deleteUser = useCallback(async (userId: string) => {
+    await db.deleteUserAccount(userId);
+    fetchData();
+  }, [fetchData]);
 
-  const addReportToUser = useCallback((userId: string, report: { doctorId: string; doctorName: string; reason: string; date: string }) => {
-    firebaseService.addReportToUser(userId, report);
-  }, []);
+  const addReportToUser = useCallback(async (userId: string, report: { doctorId: string; doctorName: string; reason: string; date: string }) => {
+    await db.addReportToUser(userId, report);
+    fetchData();
+  }, [fetchData]);
 
-  const addProfessionalUser = useCallback((newUser: Omit<User, 'id'|'status'>) => {
-    firebaseService.createProfessionalUser(newUser);
-  }, []);
+  const addProfessionalUser = useCallback(async (newUser: Omit<User, 'id'|'status'>) => {
+    await db.createProfessionalUser(newUser);
+    fetchData();
+  }, [fetchData]);
 
   const updateProfessionalProfile = useCallback(async (userId: string, userUpdates: Partial<User>, profileUpdates: Partial<DoctorProfile>) => {
-    await firebaseService.updateProfessionalProfile(userId, userUpdates, profileUpdates);
-  }, []);
+    await db.updateProfessionalProfile(userId, userUpdates, profileUpdates);
+    fetchData();
+  }, [fetchData]);
 
-  const addResidentRecord = useCallback((details: Omit<ResidentRecord, 'id' | 'createdAt'>) => {
-    firebaseService.addResidentRecord(details);
-  }, []);
+  const addResidentRecord = useCallback(async (details: Omit<ResidentRecord, 'id' | 'createdAt'>) => {
+    await db.addResidentRecord(details);
+    fetchData();
+  }, [fetchData]);
 
-  const deleteResidentRecord = useCallback((recordId: string) => {
-    firebaseService.deleteResidentRecord(recordId);
-  }, []);
+  const deleteResidentRecord = useCallback(async (recordId: string) => {
+    await db.deleteResidentRecord(recordId);
+    fetchData();
+  }, [fetchData]);
 
-  const updateResidentRecord = useCallback((recordId: string, details: Partial<Omit<ResidentRecord, 'id' | 'createdAt'>>) => {
-    firebaseService.updateResidentRecord(recordId, details);
-  }, []);
-
-  const approveIdVerification = useCallback((notificationId: string) => {
-    firebaseService.approveIdVerification(notificationId);
-  }, []);
-
-  const rejectIdVerification = useCallback((notificationId: string, reason: string) => {
-    firebaseService.rejectIdVerification(notificationId, reason);
-  }, []);
-  
-  const markPatientNotificationAsRead = useCallback((notificationId: string) => {
-    firebaseService.markPatientNotificationAsRead(notificationId);
-  }, []);
-
-  const updateValidId = useCallback(async (file: File) => {
-    if (!user) return;
-    await firebaseService.updateValidId(user.id, file);
-    alert('Your new ID has been submitted for verification.');
-  }, [user]);
+  const updateResidentRecord = useCallback(async (recordId: string, details: Partial<Omit<ResidentRecord, 'id' | 'createdAt'>>) => {
+    await db.updateResidentRecord(recordId, details);
+    fetchData();
+  }, [fetchData]);
 
   const addConsultation = useCallback(async (consultation: Omit<Consultation, 'id' | 'patient' | 'doctor' | 'patientId' | 'status'>) => {
     if (!user) return;
-    const fullConsultation = { ...consultation, patientId: user.id };
     try {
-        await firebaseService.addConsultation(fullConsultation);
-        localStorage.removeItem(CHAT_HISTORY_KEY);
-        alert(t('pending_prescription_alert'));
-        navigateTo(Screens.PRESCRIPTIONS);
+      await db.addConsultation({ ...consultation, patientId: user.id });
+      alert(t('pending_prescription_alert'));
+      navigateTo(Screens.CONSULTATIONS);
     } catch (error: any) {
-        alert(error.message);
-        // Navigate to profile screen if they've used their free credit
-        if (error.message.includes('free consultation')) {
-            navigateTo(Screens.PROFILE);
-        }
+      alert(error.message);
     }
-  }, [user, navigateTo, t]);
+    fetchData();
+  }, [user, fetchData, navigateTo, t]);
 
-  const updateConsultationStatus = useCallback((consultationId: string, status: ConsultationStatus, doctorId: string) => {
-    firebaseService.updateConsultationStatus(consultationId, status, doctorId);
-  }, []);
-  
-  const addPrescription = useCallback((prescription: Omit<Prescription, 'id' | 'patient' | 'doctorName'>) => {
-     if (!user) return;
-     firebaseService.addPrescription(prescription);
-  }, [user]);
-  
-  const updatePrescription = useCallback((prescriptionId: string, details: Partial<Omit<Prescription, 'id'>>) => {
-     if (!user || user.role !== 'doctor') return;
-     const payload = { ...details, doctorId: user.id };
-     firebaseService.updatePrescription(prescriptionId, payload);
-  }, [user]);
+  const updateConsultationStatus = useCallback(async (consultationId: string, status: ConsultationStatus, doctorId: string) => {
+    await db.updateConsultationStatus(consultationId, status, doctorId);
+    fetchData();
+  }, [fetchData]);
 
-  const addForumPost = useCallback((content: string) => {
+  const addPrescription = useCallback(async (prescription: Omit<Prescription, 'id' | 'patient' | 'doctorName'>) => {
+    await db.addPrescription(prescription);
+    fetchData();
+  }, [fetchData]);
+
+  const updatePrescription = useCallback(async (prescriptionId: string, details: Partial<Omit<Prescription, 'id'>>) => {
+    await db.updatePrescription(prescriptionId, details);
+    fetchData();
+  }, [fetchData]);
+
+  const addForumPost = useCallback(async (content: string) => {
     if (!user) return;
-    const newPost = { authorId: user.id, timestamp: new Date().toLocaleString(), content };
-    firebaseService.addForumPost(newPost);
-  }, [user]);
+    await db.addForumPost(user.id, content);
+    fetchData();
+  }, [user, fetchData]);
 
-  const sendPrivateMessage = useCallback((recipientId: string, content: string) => {
+  const sendPrivateMessage = useCallback(async (recipientId: string, content: string) => {
     if (!user) return;
-    firebaseService.sendPrivateMessage(user.id, recipientId, content);
-  }, [user]);
+    await db.sendPrivateMessage(user.id, recipientId, content);
+    fetchData();
+  }, [user, fetchData]);
 
-  const sendPatientDoctorMessage = useCallback((doctorId: string, content: string) => {
-    if (!user || user.role !== 'patient') return;
-    firebaseService.sendPatientDoctorMessage(user.id, doctorId, content);
-  }, [user]);
+  const sendPatientDoctorMessage = useCallback(async (doctorId: string, content: string) => {
+    if (!user) return;
+    await db.sendPatientDoctorMessage(user.id, doctorId, content);
+    fetchData();
+  }, [user, fetchData]);
 
-  const sendDoctorPatientMessage = useCallback((patientId: string, content: string) => {
-    if (!user || user.role !== 'doctor') return;
-    firebaseService.sendDoctorPatientMessage(user.id, patientId, content);
-  }, [user]);
+  const sendDoctorPatientMessage = useCallback(async (patientId: string, content: string) => {
+    if (!user) return;
+    await db.sendDoctorPatientMessage(user.id, patientId, content);
+    fetchData();
+  }, [user, fetchData]);
+
+  const markDoctorChatAsRead = useCallback(async (conversationId: string) => {
+    await db.markDoctorChatAsRead(conversationId);
+    fetchData();
+  }, [fetchData]);
+
+  const updateDoctorAvailability = useCallback(async (doctorId: string, availability: 'Available' | 'On Leave') => {
+    await db.updateDoctorAvailability(doctorId, availability);
+    fetchData();
+  }, [fetchData]);
+
+  const upgradeUserSubscription = useCallback(async (userId: string, plan: 'individual' | 'family') => {
+    await db.upgradeUserSubscription(userId, plan);
+    fetchData();
+  }, [fetchData]);
+
+  const grantPremiumSubscription = useCallback(async (userId: string) => {
+    await db.grantPremiumSubscription(userId);
+    fetchData();
+  }, [fetchData]);
+
+  const approveIdVerification = useCallback(async (notificationId: string) => {
+    await db.approveIdVerification(notificationId);
+    fetchData();
+  }, [fetchData]);
+
+  const rejectIdVerification = useCallback(async (notificationId: string, reason: string) => {
+    await db.rejectIdVerification(notificationId, reason);
+    fetchData();
+  }, [fetchData]);
+
+  const markPatientNotificationAsRead = useCallback(async (notificationId: string) => {
+    await db.markPatientNotificationAsRead(notificationId);
+    fetchData();
+  }, [fetchData]);
   
-  const markDoctorChatAsRead = useCallback((conversationId: string) => {
-    firebaseService.markDoctorChatAsRead(conversationId);
-  }, []);
-
-  const updateDoctorAvailability = useCallback((doctorId: string, availability: 'Available' | 'On Leave') => {
-    firebaseService.updateDoctorAvailability(doctorId, availability);
-  }, []);
-
-  const upgradeUserSubscription = useCallback((userId: string, plan: 'individual' | 'family') => {
-    firebaseService.upgradeUserSubscription(userId, plan);
-  }, []);
-
-  const grantPremiumSubscription = useCallback((userId: string) => {
-    firebaseService.grantPremiumSubscription(userId);
-  }, []);
+  const updateValidId = useCallback(async (file: File) => {
+    if (!user) return;
+    await db.updateValidId(user.id, file);
+    alert('Your new ID has been submitted for verification.');
+    fetchData();
+  }, [user, fetchData]);
 
   const validateAndRemitPrescription = useCallback(async (prescriptionId: string) => {
-    return firebaseService.validateAndRemitPrescription(prescriptionId);
-  }, []);
+    const result = await db.validateAndRemitPrescription(prescriptionId);
+    fetchData();
+    return result;
+  }, [fetchData]);
 
-  const value = useMemo(() => ({
-    role,
-    user,
-    users,
-    screen,
-    activePatientScreen,
-    language,
-    t,
-    isGuestUpgrading,
-    setIsGuestUpgrading,
-    login,
-    register,
-    loginAsGuest,
-    logout,
-    promptGuestExit,
-    navigateTo,
-    setLanguage,
-    startSymptomCheck,
-    symptom,
-    updateGuestDetails,
-    updateUserProfile,
-    updateUserStatus,
-    deleteUser,
-    addReportToUser,
-    addProfessionalUser,
-    updateProfessionalProfile,
-    residentRecords,
-    addResidentRecord,
-    deleteResidentRecord,
-    updateResidentRecord,
-    bhwNotifications,
-    approveIdVerification,
-    rejectIdVerification,
-    patientNotifications,
-    markPatientNotificationAsRead,
-    updateValidId,
-    consultations,
-    addConsultation,
-    updateConsultationStatus,
-    prescriptions,
-    medicines,
-    addPrescription,
-    updatePrescription,
-    activeConsultation,
-    setActiveConsultation,
-    activePrescription,
-    setActivePrescription,
-    activePatientForManagement,
-    setActivePatientForManagement,
-    forumPosts,
-    addForumPost,
-    activePrivateChatRecipient,
-    setActivePrivateChatRecipient,
-    privateChats,
-    sendPrivateMessage,
-    activeDoctorChatRecipient,
-    setActiveDoctorChatRecipient,
-    patientDoctorChats,
-    sendPatientDoctorMessage,
-    sendDoctorPatientMessage,
-    markDoctorChatAsRead,
-    doctorProfiles,
-    updateDoctorAvailability,
-    upgradeUserSubscription,
-    grantPremiumSubscription,
-    rhuStats,
-    bhwStats,
-    pharmacyStats,
-    pendingConsultationForGuest,
-    setPendingConsultationForGuest,
-    validateAndRemitPrescription,
-  }), [role, user, users, screen, activePatientScreen, language, t, isGuestUpgrading, login, register, loginAsGuest, logout, promptGuestExit, navigateTo, startSymptomCheck, symptom, updateGuestDetails, updateUserProfile, updateUserStatus, deleteUser, addReportToUser, addProfessionalUser, updateProfessionalProfile, residentRecords, addResidentRecord, deleteResidentRecord, updateResidentRecord, bhwNotifications, approveIdVerification, rejectIdVerification, patientNotifications, markPatientNotificationAsRead, updateValidId, consultations, addConsultation, updateConsultationStatus, prescriptions, medicines, addPrescription, updatePrescription, activeConsultation, activePrescription, activePatientForManagement, forumPosts, addForumPost, activePrivateChatRecipient, privateChats, sendPrivateMessage, activeDoctorChatRecipient, patientDoctorChats, sendPatientDoctorMessage, sendDoctorPatientMessage, markDoctorChatAsRead, doctorProfiles, updateDoctorAvailability, upgradeUserSubscription, grantPremiumSubscription, rhuStats, bhwStats, pharmacyStats, pendingConsultationForGuest, validateAndRemitPrescription]);
-  
-  if (authLoading) {
-      return (
-          <div className="h-screen w-screen flex items-center justify-center font-sans">
-              <div className="relative w-full max-w-sm h-full sm:h-[95vh] sm:max-h-[840px] bg-white shadow-2xl rounded-lg overflow-hidden flex flex-col items-center justify-center">
-                  <p className="text-gray-600 animate-pulse">Initializing Ebotika+...</p>
-              </div>
-          </div>
-      );
-  }
 
-  const renderScreen = () => {
-    switch (screen) {
-      case Screens.WELCOME:
-        return <WelcomeScreen />;
-      case Screens.LOGIN:
-        return <LoginScreen />;
-      case Screens.REGISTER:
-        return <RegisterScreen />;
-      case Screens.PATIENT_HOME:
-      case Screens.CONSULTATIONS:
-      case Screens.PRESCRIPTIONS:
-      case Screens.PROFILE:
-        const PatientScreensMap: { [key: string]: React.ReactElement } = {
-          [Screens.PATIENT_HOME]: <PatientHomeScreen />,
-          [Screens.CONSULTATIONS]: <ConsultsScreen />,
-          [Screens.PRESCRIPTIONS]: <PrescriptionsScreen />,
-          [Screens.PROFILE]: <ProfileScreen />,
-        };
-        return PatientScreensMap[activePatientScreen];
-      case Screens.SYMPTOM_CHECK:
-          return <SymptomCheckScreen />;
-      case Screens.QR_DISPLAY:
-          return <QRDisplayScreen />;
-      case Screens.DOCTOR_CHAT:
-          return <DoctorChatScreen />;
-      case Screens.PATIENT_CONSULTATION_DETAIL:
-          return <PatientConsultationDetailScreen />;
-      case Screens.DOCTOR_DASHBOARD:
-        return <DoctorDashboard />;
-      case Screens.DOCTOR_INBOX:
-        return <DoctorInboxScreen />;
-      case Screens.CONSULTATION_DETAIL:
-        return <ConsultationDetailScreen />;
-      case Screens.PRESCRIPTION_FORM:
-        return <PrescriptionFormScreen />;
-      case Screens.PHARMACY_DASHBOARD:
-        return <PharmacyDashboard />;
-      case Screens.PHARMACY_SCAN:
-        return <PharmacyScanScreen />;
-      case Screens.RHU_DASHBOARD:
-        return <RHUDashboard />;
-      case Screens.BHW_DASHBOARD:
-        return <BHWDashboard />;
-      case Screens.PATIENT_DETAIL_MANAGEMENT:
-        return <PatientDetailScreen />;
-      case Screens.FORUM:
-        return <ForumScreen />;
-      case Screens.PROFESSIONALS_DIRECTORY:
-        return <ProfessionalsDirectoryScreen />;
-      case Screens.PRIVATE_CHAT:
-        return <PrivateChatScreen />;
-      case Screens.PROFESSIONAL_PROFILE_EDIT:
-        return <ProfessionalProfileEditScreen />;
-      default:
-        return <WelcomeScreen />;
-    }
-  };
-  
-  const showChatBubble = (role === 'patient' || role === 'guest') && screen === Screens.PATIENT_HOME;
+    const contextValue = useMemo(() => ({
+        role, user, users, screen, activePatientScreen, language, t, isGuestUpgrading,
+        login, register, loginAsGuest, logout, promptGuestExit, navigateTo, setLanguage, startSymptomCheck,
+        symptom, updateGuestDetails, updateUserProfile, addProfessionalUser, updateProfessionalProfile,
+        addResidentRecord, deleteResidentRecord, updateResidentRecord, residentRecords, updateUserStatus,
+        deleteUser, addReportToUser, activeConsultation, setActiveConsultation, consultations, addConsultation,
+        updateConsultationStatus, activePrescription, setActivePrescription, prescriptions, medicines,
+        addPrescription, updatePrescription, activePatientForManagement, setActivePatientForManagement,
+        forumPosts, addForumPost, activePrivateChatRecipient, setActivePrivateChatRecipient, privateChats,
+        sendPrivateMessage, activeDoctorChatRecipient, setActiveDoctorChatRecipient, patientDoctorChats,
+        sendPatientDoctorMessage, sendDoctorPatientMessage, markDoctorChatAsRead, doctorProfiles, updateDoctorAvailability,
+        upgradeUserSubscription, grantPremiumSubscription, rhuStats, bhwStats, pharmacyStats, bhwNotifications,
+        approveIdVerification, rejectIdVerification, patientNotifications, markPatientNotificationAsRead, updateValidId,
+        pendingConsultationForGuest, setPendingConsultationForGuest, validateAndRemitPrescription,
+        setIsGuestUpgrading
+    }), [
+        role, user, users, screen, activePatientScreen, language, t, isGuestUpgrading,
+        login, register, loginAsGuest, logout, promptGuestExit, navigateTo, setLanguage, startSymptomCheck,
+        symptom, updateGuestDetails, updateUserProfile, addProfessionalUser, updateProfessionalProfile,
+        addResidentRecord, deleteResidentRecord, updateResidentRecord, residentRecords, updateUserStatus,
+        deleteUser, addReportToUser, activeConsultation, setActiveConsultation, consultations, addConsultation,
+        updateConsultationStatus, activePrescription, setActivePrescription, prescriptions, medicines,
+        addPrescription, updatePrescription, activePatientForManagement, setActivePatientForManagement,
+        forumPosts, addForumPost, activePrivateChatRecipient, setActivePrivateChatRecipient, privateChats,
+        sendPrivateMessage, activeDoctorChatRecipient, setActiveDoctorChatRecipient, patientDoctorChats,
+        sendPatientDoctorMessage, sendDoctorPatientMessage, markDoctorChatAsRead, doctorProfiles, updateDoctorAvailability,
+        upgradeUserSubscription, grantPremiumSubscription, rhuStats, bhwStats, pharmacyStats, bhwNotifications,
+        approveIdVerification, rejectIdVerification, patientNotifications, markPatientNotificationAsRead, updateValidId,
+        pendingConsultationForGuest, setPendingConsultationForGuest, validateAndRemitPrescription,
+    ]);
 
-  return (
-    <AppContext.Provider value={value}>
-      <div className="h-screen w-screen flex items-center justify-center font-sans">
-        <div className="relative w-full max-w-sm h-full sm:h-[95vh] sm:max-h-[840px] bg-white shadow-2xl rounded-lg overflow-hidden flex flex-col">
-          <GuestExitModal 
-            isOpen={isGuestExitModalOpen}
-            onConfirm={handleConfirmGuestExit}
-            onClose={() => setIsGuestExitModalOpen(false)}
-            onSaveAndRegister={handleGuestUpgrade}
-          />
-          <LogoutConfirmationModal
-            isOpen={isLogoutModalOpen}
-            onConfirm={handleConfirmLogout}
-            onClose={() => setIsLogoutModalOpen(false)}
-          />
-          {renderScreen()}
-          {showChatBubble && <ChatBubbleFAB />}
-        </div>
-      </div>
-    </AppContext.Provider>
-  );
+    const renderScreen = () => {
+        switch (screen) {
+            case Screens.WELCOME: return <WelcomeScreen />;
+            case Screens.LOGIN: return <LoginScreen />;
+            case Screens.REGISTER: return <RegisterScreen />;
+            case Screens.PATIENT_HOME: return <PatientHomeScreen />;
+            case Screens.SYMPTOM_CHECK: return <SymptomCheckScreen />;
+            case Screens.CONSULTATIONS: return <ConsultsScreen />;
+            case Screens.PRESCRIPTIONS: return <PrescriptionsScreen />;
+            case Screens.PROFILE: return <ProfileScreen />;
+            case Screens.QR_DISPLAY: return <QRDisplayScreen />;
+            case Screens.DOCTOR_CHAT: return <DoctorChatScreen />;
+            case Screens.PATIENT_CONSULTATION_DETAIL: return <PatientConsultationDetailScreen />;
+            case Screens.DOCTOR_DASHBOARD: return <DoctorDashboard />;
+            case Screens.DOCTOR_INBOX: return <DoctorInboxScreen />;
+            case Screens.CONSULTATION_DETAIL: return <ConsultationDetailScreen />;
+            case Screens.PRESCRIPTION_FORM: return <PrescriptionFormScreen />;
+            case Screens.PHARMACY_DASHBOARD: return <PharmacyDashboard />;
+            case Screens.PHARMACY_SCAN: return <PharmacyScanScreen />;
+            case Screens.RHU_DASHBOARD: return <RHUDashboard />;
+            case Screens.BHW_DASHBOARD: return <BHWDashboard />;
+            case Screens.PATIENT_DETAIL_MANAGEMENT: return <PatientDetailScreen />;
+            case Screens.FORUM: return <ForumScreen />;
+            case Screens.PROFESSIONALS_DIRECTORY: return <ProfessionalsDirectoryScreen />;
+            case Screens.PRIVATE_CHAT: return <PrivateChatScreen />;
+            case Screens.PROFESSIONAL_PROFILE_EDIT: return <ProfessionalProfileEditScreen />;
+            default: return <WelcomeScreen />;
+        }
+    };
+
+    return (
+        <AppContext.Provider value={contextValue}>
+            <div className="relative w-full h-full max-w-md mx-auto bg-white shadow-lg flex flex-col overflow-hidden font-sans">
+                {renderScreen()}
+                {(role === 'patient' || role === 'guest') && ![Screens.SYMPTOM_CHECK, Screens.DOCTOR_CHAT].includes(screen) && <ChatBubbleFAB />}
+            </div>
+            <GuestExitModal
+                isOpen={isGuestExitModalOpen}
+                onClose={() => setIsGuestExitModalOpen(false)}
+                onConfirm={handleConfirmGuestExit}
+                onSaveAndRegister={handleGuestUpgrade}
+            />
+            <LogoutConfirmationModal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                onConfirm={handleConfirmLogout}
+            />
+        </AppContext.Provider>
+    );
 }

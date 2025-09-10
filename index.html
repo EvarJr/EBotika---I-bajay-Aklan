@@ -13,11 +13,12 @@
     "react": "https://aistudiocdn.com/react@^19.1.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
     "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "firebase/app": "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js",
-    "firebase/storage": "https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.2.1/"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.18.0",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.2.1/",
+    "@firebase/auth": "https://aistudiocdn.com/@firebase/auth@^1.11.0",
+    "@firebase/app": "https://aistudiocdn.com/@firebase/app@^0.14.2",
+    "@firebase/storage": "https://aistudiocdn.com/@firebase/storage@^0.14.0",
+    "@firebase/firestore": "https://aistudiocdn.com/@firebase/firestore@^4.9.1"
   }
 }
 </script>
@@ -43,6 +44,26 @@
   .custom-scrollbar:hover {
     scrollbar-color: #cbd5e1 transparent;
   }
+
+  /* Custom Animations for Welcome Screen */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.7s ease-out forwards;
+  }
+
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-400 { animation-delay: 400ms; }
+  .animation-delay-600 { animation-delay: 600ms; }
 </style>
 </head>
   <body class="bg-gray-100">

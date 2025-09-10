@@ -536,3 +536,111 @@ export const getPharmacyStats = (setter: React.Dispatch<React.SetStateAction<any
     setter(mockStats);
     return () => {};
 };
+
+// --- DATA SEEDING ---
+export const seedInitialUsers = async () => {
+    console.log("Checking if initial users need to be seeded...");
+
+    const seedPassword = "password";
+
+    const usersToSeed = [
+        // Patient
+        {
+            email: "patient@ebotika.ph",
+            name: "Juan dela Cruz",
+            role: "patient" as Role,
+            contactNumber: "09123456789",
+            address: { barangay: 'Poblacion', purok: 'Purok 1', streetAddress: '123 Main St' },
+            isVerifiedByBhw: true,
+            hasUsedFreeConsultation: false,
+            isPremium: false,
+            validIdUrl: 'https://firebasestorage.googleapis.com/v0/b/ebotika-plus-a1.appspot.com/o/valid-ids%2Fmock-id.png?alt=media&token=12345678-1234-1234-1234-1234567890ab',
+        },
+        // Doctor
+        {
+            email: "doctor@ebotika.ph",
+            name: "Dr. Maria Santos",
+            role: "doctor" as Role,
+            specialty: "General Physician" as DoctorSpecialty,
+            avatarUrl: "https://picsum.photos/id/433/200/200",
+            availability: "Available" as "Available" | "On Leave",
+        },
+        // Pharmacy
+        {
+            email: "pharmacy@ebotika.ph",
+            name: "Rose Pharmacy",
+            role: "pharmacy" as Role,
+            avatarUrl: "https://picsum.photos/id/338/200/200",
+        },
+        // Admin
+        {
+            email: "admin@ebotika.ph",
+            name: "RHU Administrator",
+            role: "admin" as Role,
+            avatarUrl: "https://picsum.photos/id/237/200/200",
+        },
+        // BHW
+        {
+            email: "bhw@ebotika.ph",
+            name: "BHW Poblacion",
+            role: "bhw" as Role,
+            assignedBarangay: "Poblacion",
+            avatarUrl: "https://picsum.photos/id/553/200/200",
+        },
+    ];
+
+    for (const userData of usersToSeed) {
+        try {
+            // 1. Create user in Firebase Auth
+            const userCredential = await createUserWithEmailAndPassword(auth, userData.email, seedPassword);
+            const user = userCredential.user;
+            console.log(`Created auth user: ${userData.email}`);
+
+            // 2. Create user document in Firestore
+            const userProfile: any = {
+                name: userData.name,
+                email: userData.email,
+                role: userData.role,
+                status: 'active',
+                avatarUrl: userData.avatarUrl || `https://ui-avatars.com/api/?name=${userData.name.replace(' ', '+')}&background=random`,
+            };
+
+            if (userData.role === 'patient') {
+                userProfile.contactNumber = userData.contactNumber;
+                userProfile.address = userData.address;
+                userProfile.isVerifiedByBhw = userData.isVerifiedByBhw;
+                userProfile.hasUsedFreeConsultation = userData.hasUsedFreeConsultation;
+                userProfile.isPremium = userData.isPremium;
+                userProfile.validIdUrl = userData.validIdUrl;
+            }
+
+            if (userData.role === 'bhw') {
+                userProfile.assignedBarangay = userData.assignedBarangay;
+            }
+
+            await setDoc(doc(db, "users", user.uid), userProfile);
+            console.log(`Created firestore profile for: ${userData.email}`);
+
+            // 3. Create doctorProfile if applicable
+            if (userData.role === 'doctor' && userData.specialty && userData.availability) {
+                const doctorProfileData: Omit<DoctorProfile, 'id'> = {
+                    userId: user.uid,
+                    name: userData.name,
+                    specialty: userData.specialty,
+                    avatarUrl: userData.avatarUrl!,
+                    availability: userData.availability,
+                };
+                await addDoc(collection(db, "doctorProfiles"), doctorProfileData);
+                console.log(`Created doctorProfile for: ${userData.email}`);
+            }
+        } catch (error: any) {
+            if (error.code === 'auth/email-already-in-use') {
+                console.log(`User ${userData.email} already exists. Skipping.`);
+            } else {
+                console.error(`Failed to seed user ${userData.email}:`, error);
+            }
+        }
+    }
+
+    console.log("Initial user seeding process finished.");
+};

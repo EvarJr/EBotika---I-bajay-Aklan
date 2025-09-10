@@ -580,11 +580,11 @@ const UserProfileView: React.FC = () => {
                         <select
                             id="language"
                             value={language}
-                            onChange={(e) => setLanguage(e.target.value as 'English' | 'Tagalog')}
+                            onChange={(e) => setLanguage(e.target.value as 'English' | 'Filipino')}
                             className="border-gray-300 rounded-md p-1 focus:ring-teal-500 focus:border-teal-500 text-sm"
                         >
                             <option>English</option>
-                            <option>Tagalog</option>
+                            <option>Filipino</option>
                         </select>
                     </SettingRow>
                     <SettingRow label={t('profile_settings_notifications')}>

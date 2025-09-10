@@ -1,8 +1,6 @@
-
-
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAppContext } from '../../hooks/useAppContext';
-import { streamChatResponse } from '../../services/geminiService';
+import { streamAiChatResponse } from '../../services/geminiService';
 import type { ChatMessage, AISummary, Consultation, User, Prescription, StructuredAddress } from '../../types';
 import { SendIcon, ArrowLeftIcon } from '../../components/Icons';
 import { Screens, CHAT_HISTORY_KEY, IBAJAY_ADDRESS_DATA } from '../../constants';
@@ -130,8 +128,17 @@ const SymptomCheckScreen: React.FC = () => {
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         try {
             const saved = localStorage.getItem(CHAT_HISTORY_KEY);
-            return saved ? JSON.parse(saved).messages || [] : [];
-        } catch (e) { return []; }
+            if (!saved) return [];
+            const parsed = JSON.parse(saved);
+            const loadedMessages = parsed.messages || [];
+            // Ensure timestamps are Date objects for consistency
+            return loadedMessages.map((msg: ChatMessage) => ({
+                ...msg,
+                timestamp: new Date(msg.timestamp) 
+            }));
+        } catch (e) { 
+            return []; 
+        }
     });
     const [summary, setSummary] = useState<AISummary | null>(() => {
         try {
@@ -152,18 +159,52 @@ const SymptomCheckScreen: React.FC = () => {
 
     useEffect(scrollToBottom, [messages, isLoading, summary]);
     
+    // Fix: Memoize handleSend to prevent stale closures and add it and other dependencies to the useEffect hook below.
+    const handleSend = useCallback(async (prefilledSymptom?: string) => {
+        const textToSend = prefilledSymptom || input;
+        if (!textToSend.trim() || isLoading) return;
+        const newUserMessage: ChatMessage = { id: `user-${Date.now()}`, text: textToSend, sender: 'user', timestamp: new Date() };
+        const updatedMessages = [...messages, newUserMessage];
+        setMessages(updatedMessages);
+        setInput('');
+        setIsLoading(true);
+
+        const aiMessageId = `ai-${Date.now()}`;
+        setMessages(prev => [...prev, { id: aiMessageId, text: '...', sender: 'ai', timestamp: new Date() }]);
+        
+        let aiResponseText = '';
+        try {
+            const stream = streamAiChatResponse(updatedMessages, language);
+            for await (const chunk of stream) {
+                aiResponseText += chunk;
+                setMessages(prev => prev.map(m => m.id === aiMessageId ? {...m, text: aiResponseText} : m));
+            }
+
+            try {
+                const parsedSummary = JSON.parse(aiResponseText);
+                if (parsedSummary.diagnosis_suggestion) {
+                    setSummary(parsedSummary);
+                    setMessages(prev => prev.filter(m => m.id !== aiMessageId));
+                }
+            } catch (e) { /* Not a JSON summary */ }
+
+        } catch (error) {
+            setMessages(prev => prev.map(m => m.id === aiMessageId ? {...m, text: 'Sorry, I encountered an error.'} : m));
+        } finally {
+            setIsLoading(false);
+        }
+    }, [input, isLoading, language, messages, setSummary]);
+    
     useEffect(() => {
         if(symptom && messages.length === 0) {
             handleSend(symptom);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [symptom, messages.length, handleSend]);
 
     const createAndSubmitConsultation = async () => {
         if (!summary || !user) return;
         setIsSubmitting(true);
         try {
-            // FIX: Removed 'status' property. The status is set to 'Pending Doctor' by the firebase service.
             await addConsultation({
                 date: new Date().toISOString().split('T')[0],
                 symptoms: messages.filter(m => m.sender === 'user').map(m => m.text),
@@ -254,41 +295,6 @@ const SymptomCheckScreen: React.FC = () => {
         updateGuestDetails(details);
         setIsGuestModalOpen(false);
         navigateTo(Screens.REGISTER);
-    };
-
-    const handleSend = async (prefilledSymptom?: string) => {
-        const textToSend = prefilledSymptom || input;
-        if (!textToSend.trim() || isLoading) return;
-        const newUserMessage: ChatMessage = { id: `user-${Date.now()}`, text: textToSend, sender: 'user', timestamp: new Date() };
-        const updatedMessages = [...messages, newUserMessage];
-        setMessages(updatedMessages);
-        setInput('');
-        setIsLoading(true);
-
-        const aiMessageId = `ai-${Date.now()}`;
-        setMessages(prev => [...prev, { id: aiMessageId, text: '...', sender: 'ai', timestamp: new Date() }]);
-        
-        let aiResponseText = '';
-        try {
-            const stream = streamChatResponse(updatedMessages, language);
-            for await (const chunk of stream) {
-                aiResponseText += chunk;
-                setMessages(prev => prev.map(m => m.id === aiMessageId ? {...m, text: aiResponseText} : m));
-            }
-
-            try {
-                const parsedSummary = JSON.parse(aiResponseText);
-                if (parsedSummary.diagnosis_suggestion) {
-                    setSummary(parsedSummary);
-                    setMessages(prev => prev.filter(m => m.id !== aiMessageId));
-                }
-            } catch (e) { /* Not a JSON summary */ }
-
-        } catch (error) {
-            setMessages(prev => prev.map(m => m.id === aiMessageId ? {...m, text: 'Sorry, I encountered an error.'} : m));
-        } finally {
-            setIsLoading(false);
-        }
     };
 
   return (

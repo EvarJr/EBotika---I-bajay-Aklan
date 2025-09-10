@@ -46,3 +46,13 @@ export const CheckBadgeIcon = () => <svg {...iconProps}><path d="M3.85 8.62a4 4 
 export const IdIcon = () => <svg {...iconProps}><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="8" cy="10" r="2"/><path d="M12 14h6"/><path d="M12 10h6"/></svg>;
 export const SparklesIcon = () => <svg {...iconProps} className="w-5 h-5" strokeWidth="1.5"><path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5L12 2z"/></svg>;
 export const StarIcon = () => <svg {...iconProps} className="w-5 h-5" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>;
+export const CameraIcon = () => <svg {...iconProps}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>;
+export const MedicalIllustrationIcon = () => (
+  <svg className="w-40 h-40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="48" fill="white" fillOpacity="0.1"/>
+    <circle cx="50" cy="50" r="38" fill="white" fillOpacity="0.2"/>
+    <path d="M50 35V65" stroke="white" strokeWidth="6" strokeLinecap="round"/>
+    <path d="M65 50L35 50" stroke="white" strokeWidth="6" strokeLinecap="round"/>
+    <path d="M58 35C64 40 66 48 64 54C62 60 55 64 50 65" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+  </svg>
+);
